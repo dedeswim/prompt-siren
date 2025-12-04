@@ -39,7 +39,7 @@ uv sync --extra agentdojo --extra docker
 |-------|-------------|
 | `agentdojo` | AgentDojo dataset, environment, and attacks |
 | `swebench` | SWE-bench dataset for code editing benchmarks |
-| `docker` | Docker sandbox manager (required for SWE-bench) |
+| `docker` | Docker sandbox manager |
 | `playwright` | Web automation environment |
 
 Set up environment variables:
