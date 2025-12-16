@@ -543,9 +543,12 @@ def _run_job(
 ) -> None:
     """Run a job with the given configuration.
 
-    This function creates a job directory and runs the experiment using Hydra.
-    The job_name and jobs_dir are passed to the Hydra app via overrides to
-    enable job-based persistence.
+    This function passes job settings to Hydra via overrides. The actual Job
+    creation happens in hydra_app.py after Hydra composes the configuration.
+    This design is intentional because:
+    - Hydra needs to compose config first (handling defaults, interpolations)
+    - In multirun mode, Hydra creates multiple configs, each needing its own Job
+    - Job creation requires the fully resolved ExperimentConfig
 
     Args:
         config_dir: Configuration directory path (if None, uses default ./config)
@@ -559,14 +562,12 @@ def _run_job(
         resolve: Resolve OmegaConf interpolations when printing config
         info: Print Hydra information and exit
     """
-    # Add job-related overrides
+    # Add job-related overrides (Job is created in hydra_app.py after config composition)
     job_overrides = list(overrides)
     if job_name is not None:
         job_overrides.append(f"output.job_name={job_name}")
     job_overrides.append(f"output.jobs_dir={jobs_dir}")
 
-    # For now, use the existing Hydra-based runner
-    # TODO: Integrate with Job class for full job management
     _run_hydra(
         config_dir=config_dir,
         config_name=config_name,

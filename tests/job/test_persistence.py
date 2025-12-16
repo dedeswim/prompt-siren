@@ -1,0 +1,345 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+"""Tests for JobPersistence class."""
+
+from datetime import datetime
+from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
+from prompt_siren.job.models import (
+    CONFIG_FILENAME,
+    ExceptionInfo,
+    INDEX_FILENAME,
+    JobConfig,
+    JobStats,
+    RESULT_FILENAME,
+    TASK_RESULT_FILENAME,
+    TaskRunResult,
+)
+from prompt_siren.job.persistence import (
+    _load_config_yaml,
+    _save_config_yaml,
+    JobPersistence,
+)
+from prompt_siren.tasks import BenignTask, EvaluationResult, MaliciousTask, TaskCouple, TaskResult
+from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
+from pydantic_ai.usage import RunUsage
+
+
+@pytest.fixture
+def job_config() -> JobConfig:
+    """Create a minimal job config for testing."""
+    return JobConfig(
+        job_name="test_job",
+        execution_mode="benign",
+        created_at=datetime.now(),
+        dataset={"type": "test", "config": {}},
+        agent={"type": "plain", "config": {"model": "test"}},
+        attack=None,
+        execution={"concurrency": 1},
+        telemetry={"trace_console": False},
+        output={"jobs_dir": "jobs"},
+    )
+
+
+@pytest.fixture
+def job_persistence(tmp_path: Path, job_config: JobConfig) -> JobPersistence:
+    """Create a JobPersistence instance for testing."""
+    return JobPersistence.create(tmp_path, job_config)
+
+
+@pytest.fixture
+def mock_task_span() -> MagicMock:
+    """Create a mock logfire span for testing."""
+    mock_span = MagicMock()
+    mock_context = MagicMock()
+    mock_context.trace_id = 0x123456789ABCDEF0
+    mock_context.span_id = 0xABCDEF01
+    mock_span.get_span_context.return_value = mock_context
+    return mock_span
+
+
+class TestJobPersistenceLoad:
+    """Tests for JobPersistence.load method."""
+
+    def test_loads_existing_job(self, tmp_path: Path, job_config: JobConfig):
+        """Test loading an existing job preserves config."""
+        job_dir = tmp_path / "existing_job"
+        JobPersistence.create(job_dir, job_config)
+
+        loaded = JobPersistence.load(job_dir)
+        assert loaded.job_config.job_name == job_config.job_name
+
+    def test_raises_for_missing_job(self, tmp_path: Path):
+        """Test that loading nonexistent job raises FileNotFoundError."""
+        with pytest.raises(FileNotFoundError, match="Job config not found"):
+            JobPersistence.load(tmp_path / "nonexistent")
+
+    def test_does_not_overwrite_existing_config_on_create(
+        self, tmp_path: Path, job_config: JobConfig
+    ):
+        """Test that create() preserves existing config file."""
+        job_dir = tmp_path / "existing_job"
+        job_dir.mkdir()
+
+        custom_content = "# Custom config\njob_name: custom"
+        (job_dir / CONFIG_FILENAME).write_text(custom_content)
+
+        JobPersistence.create(job_dir, job_config)
+
+        assert "custom" in (job_dir / CONFIG_FILENAME).read_text()
+
+
+class TestGetCompletedRuns:
+    """Tests for JobPersistence.get_completed_runs method."""
+
+    def test_returns_only_completed_run_indices(self, job_persistence: JobPersistence):
+        """Test that only runs with result.json are returned as completed."""
+        # Create completed runs
+        for run_idx in [1, 3]:
+            run_dir = job_persistence.get_task_run_dir("task1", run_idx)
+            run_dir.mkdir(parents=True)
+            result = TaskRunResult(
+                task_id="task1",
+                run_index=run_idx,
+                finished_at=datetime.now(),
+            )
+            (run_dir / TASK_RESULT_FILENAME).write_text(result.model_dump_json())
+
+        # Create incomplete run (directory only, no result.json)
+        incomplete_dir = job_persistence.get_task_run_dir("task1", 2)
+        incomplete_dir.mkdir(parents=True)
+
+        completed = job_persistence.get_completed_runs("task1")
+        assert completed == [1, 3]  # run 2 excluded because incomplete
+
+
+class TestGetRunStatus:
+    """Tests for JobPersistence.get_run_status method."""
+
+    def test_returns_correct_status_for_each_state(self, job_persistence: JobPersistence):
+        """Test that correct status is returned for pending, incomplete, completed, and failed."""
+        # Pending (no directory)
+        status, _ = job_persistence.get_run_status("task1", 1)
+        assert status == "pending"
+
+        # Incomplete (directory exists, no result)
+        run_dir = job_persistence.get_task_run_dir("task1", 2)
+        run_dir.mkdir(parents=True)
+        status, _ = job_persistence.get_run_status("task1", 2)
+        assert status == "incomplete"
+
+        # Completed (directory + result without exception)
+        run_dir = job_persistence.get_task_run_dir("task1", 3)
+        run_dir.mkdir(parents=True)
+        result = TaskRunResult(
+            task_id="task1", run_index=3, finished_at=datetime.now(), benign_score=1.0
+        )
+        (run_dir / TASK_RESULT_FILENAME).write_text(result.model_dump_json())
+        status, loaded = job_persistence.get_run_status("task1", 3)
+        assert status == "completed"
+        assert loaded is not None
+        assert loaded.benign_score == 1.0
+
+        # Failed (directory + result with exception)
+        run_dir = job_persistence.get_task_run_dir("task1", 4)
+        run_dir.mkdir(parents=True)
+        result = TaskRunResult(
+            task_id="task1",
+            run_index=4,
+            finished_at=datetime.now(),
+            exception_info=ExceptionInfo(
+                exception_type="RuntimeError",
+                exception_message="error",
+                exception_traceback="",
+                occurred_at=datetime.now(),
+            ),
+        )
+        (run_dir / TASK_RESULT_FILENAME).write_text(result.model_dump_json())
+        status, loaded = job_persistence.get_run_status("task1", 4)
+        assert status == "failed"
+        assert loaded is not None
+        assert loaded.exception_info is not None
+
+
+class TestSaveTaskRun:
+    """Tests for JobPersistence.save_task_run method."""
+
+    def test_saves_task_result_with_correct_score(
+        self, job_persistence: JobPersistence, mock_task_span: MagicMock
+    ):
+        """Test that save_task_run persists the evaluation score correctly."""
+
+        async def dummy_eval(task_result: TaskResult) -> float:
+            return 0.85
+
+        task = BenignTask(id="task1", prompt="test", evaluators={"eval1": dummy_eval})
+        evaluation = EvaluationResult(task_id="task1", results={"eval1": 0.85})
+        messages: list[ModelMessage] = [ModelResponse(parts=[TextPart("response")])]
+        usage = RunUsage()
+
+        run_dir = job_persistence.save_task_run(
+            task=task,
+            run_index=1,
+            evaluation=evaluation,
+            messages=messages,
+            usage=usage,
+            task_span=mock_task_span,
+        )
+
+        loaded = TaskRunResult.model_validate_json(
+            (run_dir / TASK_RESULT_FILENAME).read_text()
+        )
+        assert loaded.task_id == "task1"
+        assert loaded.benign_score == 0.85
+
+    def test_appends_entry_to_index(
+        self, job_persistence: JobPersistence, mock_task_span: MagicMock
+    ):
+        """Test that save_task_run appends entry to index.jsonl."""
+
+        async def dummy_eval(task_result: TaskResult) -> float:
+            return 1.0
+
+        task = BenignTask(id="task1", prompt="test", evaluators={"eval1": dummy_eval})
+        evaluation = EvaluationResult(task_id="task1", results={"eval1": 1.0})
+        messages: list[ModelMessage] = [ModelResponse(parts=[TextPart("response")])]
+        usage = RunUsage()
+
+        job_persistence.save_task_run(
+            task=task,
+            run_index=1,
+            evaluation=evaluation,
+            messages=messages,
+            usage=usage,
+            task_span=mock_task_span,
+        )
+
+        index_content = (job_persistence.job_dir / INDEX_FILENAME).read_text()
+        assert "task1" in index_content
+
+
+class TestSaveCoupleRun:
+    """Tests for JobPersistence.save_couple_run method."""
+
+    def test_saves_both_benign_and_attack_scores(
+        self, job_persistence: JobPersistence, mock_task_span: MagicMock
+    ):
+        """Test that couple run saves both benign and attack scores."""
+
+        async def benign_eval(task_result: TaskResult) -> float:
+            return 0.9
+
+        async def malicious_eval(task_result: TaskResult) -> float:
+            return 0.3
+
+        benign = BenignTask(id="benign1", prompt="benign", evaluators={"eval1": benign_eval})
+        malicious = MaliciousTask(id="mal1", goal="goal", evaluators={"eval1": malicious_eval})
+        couple = TaskCouple(benign=benign, malicious=malicious)
+
+        benign_eval_result = EvaluationResult(task_id="benign1", results={"eval1": 0.9})
+        malicious_eval_result = EvaluationResult(task_id="mal1", results={"eval1": 0.3})
+        messages: list[ModelMessage] = [ModelResponse(parts=[TextPart("response")])]
+        usage = RunUsage()
+
+        run_dir = job_persistence.save_couple_run(
+            couple=couple,
+            run_index=1,
+            benign_eval=benign_eval_result,
+            malicious_eval=malicious_eval_result,
+            messages=messages,
+            usage=usage,
+            task_span=mock_task_span,
+        )
+
+        loaded = TaskRunResult.model_validate_json(
+            (run_dir / TASK_RESULT_FILENAME).read_text()
+        )
+        assert loaded.benign_score == 0.9
+        assert loaded.attack_score == 0.3
+
+
+class TestLoadIndex:
+    """Tests for JobPersistence.load_index method."""
+
+    def test_loads_all_saved_entries(
+        self, job_persistence: JobPersistence, mock_task_span: MagicMock
+    ):
+        """Test that load_index returns all entries from index.jsonl."""
+
+        async def dummy_eval(task_result: TaskResult) -> float:
+            return 1.0
+
+        # Save multiple task runs
+        for i in range(3):
+            task = BenignTask(id=f"task{i}", prompt="test", evaluators={"eval1": dummy_eval})
+            evaluation = EvaluationResult(task_id=f"task{i}", results={"eval1": 1.0})
+            messages: list[ModelMessage] = [ModelResponse(parts=[TextPart("response")])]
+            usage = RunUsage()
+
+            job_persistence.save_task_run(
+                task=task,
+                run_index=1,
+                evaluation=evaluation,
+                messages=messages,
+                usage=usage,
+                task_span=mock_task_span,
+            )
+
+        entries = job_persistence.load_index()
+        assert len(entries) == 3
+
+
+class TestDeleteRun:
+    """Tests for JobPersistence.delete_run method."""
+
+    def test_deletes_run_directory_and_returns_true(self, job_persistence: JobPersistence):
+        """Test that delete_run removes the run directory."""
+        run_dir = job_persistence.get_task_run_dir("task1", 1)
+        run_dir.mkdir(parents=True)
+        (run_dir / "result.json").write_text("{}")
+
+        result = job_persistence.delete_run("task1", 1)
+        assert result is True
+        assert not run_dir.exists()
+
+    def test_returns_false_for_nonexistent_run(self, job_persistence: JobPersistence):
+        """Test that delete_run returns False if run doesn't exist."""
+        result = job_persistence.delete_run("nonexistent", 1)
+        assert result is False
+
+
+class TestUpdateJobResult:
+    """Tests for JobPersistence.update_job_result method."""
+
+    def test_updates_result_file_with_stats_and_completion_status(
+        self, job_persistence: JobPersistence
+    ):
+        """Test that update_job_result writes stats and is_complete to result.json."""
+        stats = JobStats(
+            n_total_tasks=10,
+            n_completed_runs=10,
+            avg_benign_score=0.85,
+        )
+
+        job_persistence.update_job_result(stats, is_complete=True)
+
+        content = (job_persistence.job_dir / RESULT_FILENAME).read_text()
+        assert "0.85" in content
+        assert '"is_complete": true' in content
+
+
+class TestConfigYamlRoundtrip:
+    """Tests for config YAML serialization."""
+
+    def test_config_survives_save_and_load(self, tmp_path: Path, job_config: JobConfig):
+        """Test that job config can be saved and loaded without data loss."""
+        config_path = tmp_path / "config.yaml"
+
+        _save_config_yaml(config_path, job_config)
+        loaded = _load_config_yaml(config_path)
+
+        assert loaded.job_name == job_config.job_name
+        assert loaded.execution_mode == job_config.execution_mode
+        assert loaded.dataset == job_config.dataset
+        assert loaded.agent == job_config.agent
