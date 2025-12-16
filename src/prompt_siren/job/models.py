@@ -9,6 +9,9 @@ from pydantic import BaseModel, Field
 from pydantic_ai.messages import ModelMessage
 from pydantic_ai.usage import RunUsage
 
+from ..config.experiment_config import ExperimentConfig
+from ..types import ExecutionMode
+
 
 class ExceptionInfo(BaseModel):
     """Information about an exception that occurred during task execution."""
@@ -65,27 +68,18 @@ class TaskRunExecution(BaseModel):
     attacks: dict[str, Any] | None = None  # Generated attacks
 
 
-class JobConfig(BaseModel):
+class JobConfig(ExperimentConfig):
     """Snapshot of the experiment configuration for a job.
 
-    This is saved as config.yaml in the job directory and can be loaded
-    via OmegaConf for resume with Hydra-style overrides.
+    Extends ExperimentConfig with job-specific metadata. This is saved as
+    config.yaml in the job directory and can be loaded via OmegaConf for
+    resume with Hydra-style overrides.
     """
 
     job_name: str
-    execution_mode: str  # "benign" or "attack"
+    execution_mode: ExecutionMode
     created_at: datetime
     n_runs_per_task: int = Field(default=1, ge=1, description="Number of runs per task for pass@k")
-
-    # Component configs (from ExperimentConfig)
-    dataset: dict[str, Any]
-    agent: dict[str, Any]
-    attack: dict[str, Any] | None
-    execution: dict[str, Any]
-    telemetry: dict[str, Any]
-    output: dict[str, Any]
-    task_ids: list[str] | None = None
-    usage_limits: dict[str, Any] | None = None
 
 
 class JobStats(BaseModel):

@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import shutil
 from collections import defaultdict
-from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -104,26 +103,13 @@ class Job:
                     "Use 'jobs resume' to continue an existing job, or choose a different job name."
                 )
 
-        # Create job config from experiment config
-        # Exclude jobs_dir from output - it's not needed for resume since job_dir is passed directly
-        output_dict = experiment_config.output.model_dump()
-        output_dict.pop("jobs_dir", None)
-
+        # Create job config by extending experiment config with job-specific fields
         job_config = JobConfig(
             job_name=job_name,
             execution_mode=execution_mode,
             created_at=datetime.now(),
             n_runs_per_task=n_runs_per_task,
-            dataset=experiment_config.dataset.model_dump(),
-            agent=experiment_config.agent.model_dump(),
-            attack=experiment_config.attack.model_dump() if experiment_config.attack else None,
-            execution=experiment_config.execution.model_dump(),
-            telemetry=experiment_config.telemetry.model_dump(),
-            output=output_dict,
-            task_ids=experiment_config.task_ids,
-            usage_limits=asdict(experiment_config.usage_limits)
-            if experiment_config.usage_limits
-            else None,
+            **experiment_config.model_dump(),
         )
 
         # Create job directory and persistence
@@ -294,40 +280,17 @@ class Job:
     def to_experiment_config(self) -> ExperimentConfig:
         """Convert JobConfig back to ExperimentConfig for execution.
 
+        Since JobConfig extends ExperimentConfig, this extracts just the
+        ExperimentConfig fields.
+
         Returns:
             ExperimentConfig instance
         """
-        from pydantic_ai.usage import UsageLimits
+        from ..config.experiment_config import ExperimentConfig
 
-        from ..config.experiment_config import (
-            AgentConfig,
-            AttackConfig,
-            DatasetConfig,
-            ExecutionConfig,
-            ExperimentConfig,
-            OutputConfig,
-            TelemetryConfig,
-        )
-
-        # Provide default for jobs_dir since it's not stored in JobConfig
-        # (job_dir is passed directly on resume, so jobs_dir is not needed)
-        output_dict = dict(self.job_config.output)
-        output_dict.setdefault("jobs_dir", Path("jobs"))
-
-        return ExperimentConfig(
-            name=self.job_config.job_name,
-            agent=AgentConfig.model_validate(self.job_config.agent),
-            dataset=DatasetConfig.model_validate(self.job_config.dataset),
-            attack=AttackConfig.model_validate(self.job_config.attack)
-            if self.job_config.attack
-            else None,
-            execution=ExecutionConfig.model_validate(self.job_config.execution),
-            telemetry=TelemetryConfig.model_validate(self.job_config.telemetry),
-            output=OutputConfig.model_validate(output_dict),
-            task_ids=self.job_config.task_ids,
-            usage_limits=UsageLimits(**self.job_config.usage_limits)
-            if self.job_config.usage_limits
-            else None,
+        # Extract only ExperimentConfig fields from JobConfig
+        return ExperimentConfig.model_validate(
+            self.job_config.model_dump(include=set(ExperimentConfig.model_fields.keys()))
         )
 
 

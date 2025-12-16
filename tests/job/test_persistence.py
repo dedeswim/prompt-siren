@@ -6,6 +6,13 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+from prompt_siren.config.experiment_config import (
+    AgentConfig,
+    DatasetConfig,
+    ExecutionConfig,
+    OutputConfig,
+    TelemetryConfig,
+)
 from prompt_siren.job.models import (
     CONFIG_FILENAME,
     ExceptionInfo,
@@ -39,12 +46,12 @@ def job_config() -> JobConfig:
         job_name="test_job",
         execution_mode="benign",
         created_at=datetime.now(),
-        dataset={"type": "test", "config": {}},
-        agent={"type": "plain", "config": {"model": "test"}},
+        dataset=DatasetConfig(type="test", config={}),
+        agent=AgentConfig(type="plain", config={"model": "test"}),
         attack=None,
-        execution={"concurrency": 1},
-        telemetry={"trace_console": False},
-        output={"jobs_dir": "jobs"},
+        execution=ExecutionConfig(concurrency=1),
+        telemetry=TelemetryConfig(trace_console=False),
+        output=OutputConfig(jobs_dir=Path("jobs")),
     )
 
 

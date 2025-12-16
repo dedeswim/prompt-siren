@@ -4,6 +4,14 @@ import math
 from datetime import datetime
 from pathlib import Path
 
+from prompt_siren.config.experiment_config import (
+    AgentConfig,
+    AttackConfig,
+    DatasetConfig,
+    ExecutionConfig,
+    OutputConfig,
+    TelemetryConfig,
+)
 from prompt_siren.job.models import JobConfig, RunIndexEntry
 from prompt_siren.results import _parse_index_entry
 
@@ -17,12 +25,12 @@ def _create_job_config(
         job_name="test_job",
         execution_mode="benign" if attack_type is None else "attack",
         created_at=datetime.now(),
-        dataset={"type": "test_dataset", "config": {}},
-        agent={"type": "plain", "config": {"model": "test_agent"}},
-        attack={"type": attack_type, "config": attack_config or {}} if attack_type else None,
-        execution={"concurrency": 1},
-        telemetry={"trace_console": False},
-        output={"jobs_dir": "jobs"},
+        dataset=DatasetConfig(type="test_dataset", config={}),
+        agent=AgentConfig(type="plain", config={"model": "test_agent"}),
+        attack=AttackConfig(type=attack_type, config=attack_config or {}) if attack_type else None,
+        execution=ExecutionConfig(concurrency=1),
+        telemetry=TelemetryConfig(trace_console=False),
+        output=OutputConfig(jobs_dir=Path("jobs")),
     )
 
 

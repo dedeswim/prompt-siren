@@ -2,8 +2,16 @@
 """Tests for job data models."""
 
 from datetime import datetime
+from pathlib import Path
 
 import pytest
+from prompt_siren.config.experiment_config import (
+    AgentConfig,
+    DatasetConfig,
+    ExecutionConfig,
+    OutputConfig,
+    TelemetryConfig,
+)
 from prompt_siren.job.models import (
     ExceptionInfo,
     JobConfig,
@@ -98,10 +106,10 @@ class TestJobConfig:
                 execution_mode="benign",
                 created_at=datetime.now(),
                 n_runs_per_task=0,
-                dataset={"type": "test", "config": {}},
-                agent={"type": "plain", "config": {}},
+                dataset=DatasetConfig(type="test", config={}),
+                agent=AgentConfig(type="plain", config={}),
                 attack=None,
-                execution={},
-                telemetry={},
-                output={},
+                execution=ExecutionConfig(),
+                telemetry=TelemetryConfig(),
+                output=OutputConfig(jobs_dir=Path("jobs")),
             )

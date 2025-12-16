@@ -8,6 +8,14 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from click.testing import CliRunner
 from prompt_siren.cli import main
+from prompt_siren.config.experiment_config import (
+    AgentConfig,
+    AttackConfig,
+    DatasetConfig,
+    ExecutionConfig,
+    OutputConfig,
+    TelemetryConfig,
+)
 from prompt_siren.job import Job, JobConfig
 from prompt_siren.job.persistence import _save_config_yaml
 
@@ -25,12 +33,12 @@ def mock_job_config() -> JobConfig:
         job_name="test_job",
         execution_mode="benign",
         created_at=datetime.now(),
-        dataset={"type": "mock", "config": {}},
-        agent={"type": "plain", "config": {"model": "test"}},
+        dataset=DatasetConfig(type="mock", config={}),
+        agent=AgentConfig(type="plain", config={"model": "test"}),
         attack=None,
-        execution={"concurrency": 1},
-        telemetry={"trace_console": False},
-        output={"job_name": "test_job"},
+        execution=ExecutionConfig(concurrency=1),
+        telemetry=TelemetryConfig(trace_console=False),
+        output=OutputConfig(jobs_dir=Path("jobs")),
     )
 
 
@@ -41,12 +49,12 @@ def mock_attack_job_config() -> JobConfig:
         job_name="test_attack_job",
         execution_mode="attack",
         created_at=datetime.now(),
-        dataset={"type": "mock", "config": {}},
-        agent={"type": "plain", "config": {"model": "test"}},
-        attack={"type": "template_string", "config": {"attack_template": "test"}},
-        execution={"concurrency": 1},
-        telemetry={"trace_console": False},
-        output={"job_name": "test_attack_job"},
+        dataset=DatasetConfig(type="mock", config={}),
+        agent=AgentConfig(type="plain", config={"model": "test"}),
+        attack=AttackConfig(type="template_string", config={"attack_template": "test"}),
+        execution=ExecutionConfig(concurrency=1),
+        telemetry=TelemetryConfig(trace_console=False),
+        output=OutputConfig(jobs_dir=Path("jobs")),
     )
 
 
@@ -175,7 +183,7 @@ class TestJobsResumeCommand:
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
         assert captured_job is not None
-        assert captured_job.job_config.execution["concurrency"] == 8
+        assert captured_job.job_config.execution.concurrency == 8
 
 
 class TestJobsStartCommand:

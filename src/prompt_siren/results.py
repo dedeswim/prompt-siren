@@ -104,16 +104,16 @@ def _parse_index_entry(line: str, job_config: JobConfig) -> dict[str, Any]:
         "exception_type": entry.exception_type,
     }
 
-    # Add job config data
-    row["dataset"] = job_config.dataset.get("type", "unknown")
-    row["dataset_config"] = job_config.dataset.get("config", {})
-    row["agent_type"] = job_config.agent.get("type", "unknown")
-    row["agent_name"] = job_config.agent.get("config", {}).get("model", "unknown")
+    # Add job config data (JobConfig extends ExperimentConfig with typed fields)
+    row["dataset"] = job_config.dataset.type
+    row["dataset_config"] = job_config.dataset.config
+    row["agent_type"] = job_config.agent.type
+    row["agent_name"] = job_config.agent.config.get("model", "unknown")
 
     # Handle attack type
     if job_config.attack is not None:
-        attack_type = job_config.attack.get("type", "unknown")
-        attack_config = job_config.attack.get("config", {})
+        attack_type = job_config.attack.type
+        attack_config = job_config.attack.config
         row["attack_type"] = attack_type
         row["attack_config"] = attack_config
 

@@ -151,13 +151,13 @@ class TestJobResume:
             job_name="test_job",
             agent_name="test",
         )
-        assert original_job.job_config.execution["concurrency"] == 2
+        assert original_job.job_config.execution.concurrency == 2
 
         resumed_job = Job.resume(
             job_dir=original_job.job_dir,
             overrides=["execution.concurrency=8"],
         )
-        assert resumed_job.job_config.execution["concurrency"] == 8
+        assert resumed_job.job_config.execution.concurrency == 8
 
     def test_rejects_immutable_overrides(self, experiment_config: ExperimentConfig, tmp_path: Path):
         """Test that dataset/agent/attack overrides are rejected on resume."""
@@ -397,12 +397,12 @@ class TestApplyResumeOverrides:
             job_name="test",
             execution_mode="benign",
             created_at=datetime.now(),
-            dataset={"type": "test", "config": {}},
-            agent={"type": "plain", "config": {}},
+            dataset=DatasetConfig(type="test", config={}),
+            agent=AgentConfig(type="plain", config={}),
             attack=None,
-            execution={"concurrency": 1},
-            telemetry={"trace_console": False},
-            output={"jobs_dir": "jobs"},
+            execution=ExecutionConfig(concurrency=1),
+            telemetry=TelemetryConfig(trace_console=False),
+            output=OutputConfig(jobs_dir=Path("jobs")),
         )
         _save_config_yaml(config_path, job_config)
 
@@ -412,8 +412,8 @@ class TestApplyResumeOverrides:
             config_path,
         )
 
-        assert updated.execution["concurrency"] == 8
-        assert updated.telemetry["trace_console"] is True
+        assert updated.execution.concurrency == 8
+        assert updated.telemetry.trace_console is True
 
     def test_strips_hydra_prefixes(self, tmp_path: Path):
         """Test that Hydra prefixes (+, ~) are stripped from overrides."""
@@ -422,15 +422,15 @@ class TestApplyResumeOverrides:
             job_name="test",
             execution_mode="benign",
             created_at=datetime.now(),
-            dataset={"type": "test", "config": {}},
-            agent={"type": "plain", "config": {}},
+            dataset=DatasetConfig(type="test", config={}),
+            agent=AgentConfig(type="plain", config={}),
             attack=None,
-            execution={"concurrency": 1},
-            telemetry={},
-            output={},
+            execution=ExecutionConfig(concurrency=1),
+            telemetry=TelemetryConfig(),
+            output=OutputConfig(jobs_dir=Path("jobs")),
         )
         _save_config_yaml(config_path, job_config)
 
         updated = _apply_resume_overrides(job_config, ["+execution.concurrency=4"], config_path)
 
-        assert updated.execution["concurrency"] == 4
+        assert updated.execution.concurrency == 4
