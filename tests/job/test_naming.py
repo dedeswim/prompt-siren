@@ -98,7 +98,9 @@ class TestParseJobName:
 
     def test_extracts_timestamp_and_prefix(self):
         """Test parsing extracts timestamp and prefix correctly."""
-        result = parse_job_name("agentdojo-workspace_plain_gpt-5_template_string_2025-01-15_14-30-00")
+        result = parse_job_name(
+            "agentdojo-workspace_plain_gpt-5_template_string_2025-01-15_14-30-00"
+        )
         assert result is not None
         assert result["timestamp"] == "2025-01-15_14-30-00"
         assert result["prefix"] == "agentdojo-workspace_plain_gpt-5_template_string"

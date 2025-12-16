@@ -21,7 +21,13 @@ from prompt_siren.job.persistence import (
     _save_config_yaml,
     JobPersistence,
 )
-from prompt_siren.tasks import BenignTask, EvaluationResult, MaliciousTask, TaskCouple, TaskResult
+from prompt_siren.tasks import (
+    BenignTask,
+    EvaluationResult,
+    MaliciousTask,
+    TaskCouple,
+    TaskResult,
+)
 from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
 from pydantic_ai.usage import RunUsage
 
@@ -187,9 +193,7 @@ class TestSaveTaskRun:
             task_span=mock_task_span,
         )
 
-        loaded = TaskRunResult.model_validate_json(
-            (run_dir / TASK_RESULT_FILENAME).read_text()
-        )
+        loaded = TaskRunResult.model_validate_json((run_dir / TASK_RESULT_FILENAME).read_text())
         assert loaded.task_id == "task1"
         assert loaded.benign_score == 0.85
 
@@ -252,9 +256,7 @@ class TestSaveCoupleRun:
             task_span=mock_task_span,
         )
 
-        loaded = TaskRunResult.model_validate_json(
-            (run_dir / TASK_RESULT_FILENAME).read_text()
-        )
+        loaded = TaskRunResult.model_validate_json((run_dir / TASK_RESULT_FILENAME).read_text())
         assert loaded.benign_score == 0.9
         assert loaded.attack_score == 0.3
 

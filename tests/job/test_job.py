@@ -142,9 +142,7 @@ class TestJobResume:
         with pytest.raises(FileNotFoundError, match="Job config not found"):
             Job.resume(job_dir=tmp_path / "nonexistent")
 
-    def test_applies_execution_overrides(
-        self, experiment_config: ExperimentConfig, tmp_path: Path
-    ):
+    def test_applies_execution_overrides(self, experiment_config: ExperimentConfig, tmp_path: Path):
         """Test that execution-related overrides are applied on resume."""
         original_job = Job.create(
             experiment_config=experiment_config,
@@ -161,9 +159,7 @@ class TestJobResume:
         )
         assert resumed_job.job_config.execution["concurrency"] == 8
 
-    def test_rejects_immutable_overrides(
-        self, experiment_config: ExperimentConfig, tmp_path: Path
-    ):
+    def test_rejects_immutable_overrides(self, experiment_config: ExperimentConfig, tmp_path: Path):
         """Test that dataset/agent/attack overrides are rejected on resume."""
         original_job = Job.create(
             experiment_config=experiment_config,
@@ -336,9 +332,7 @@ class TestJobToExperimentConfig:
 class TestListJobs:
     """Tests for list_jobs function."""
 
-    def test_lists_all_jobs_in_directory(
-        self, experiment_config: ExperimentConfig, tmp_path: Path
-    ):
+    def test_lists_all_jobs_in_directory(self, experiment_config: ExperimentConfig, tmp_path: Path):
         """Test that list_jobs returns all jobs in directory."""
         Job.create(
             experiment_config=experiment_config,
