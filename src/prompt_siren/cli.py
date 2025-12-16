@@ -1,7 +1,6 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 """Click-based CLI for Siren."""
 
-# Run the experiment using the existing hydra_app functions, passing the existing job
 import asyncio
 import sys
 from collections.abc import Callable, Iterator
