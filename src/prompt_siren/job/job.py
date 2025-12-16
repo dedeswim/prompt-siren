@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import shutil
-from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
@@ -15,7 +14,6 @@ from ..types import ExecutionMode
 from .models import (
     CONFIG_FILENAME,
     JobConfig,
-    JobStats,
 )
 from .naming import generate_job_name
 from .persistence import _load_config_yaml, _save_config_yaml, JobPersistence
@@ -138,8 +136,7 @@ class Job:
         """
         config_path = job_dir / CONFIG_FILENAME
         if not config_path.exists():
-            msg = f"Job config not found: {config_path}"
-            raise FileNotFoundError(msg)
+            raise FileNotFoundError(f"Job config not found: {config_path}")
 
         # Load existing config
         job_config = _load_config_yaml(config_path)
@@ -155,73 +152,6 @@ class Job:
         job._cleanup_for_retry(retry_on_errors)
 
         return job
-
-    def get_remaining_runs(self, task_ids: list[str]) -> dict[str, int]:
-        """Get the number of runs still needed for each task.
-
-        Args:
-            task_ids: List of all task IDs to run
-
-        Returns:
-            Dictionary mapping task_id to number of runs still needed.
-            Tasks with 0 remaining runs are not included.
-        """
-        remaining: dict[str, int] = {}
-        for task_id in task_ids:
-            completed_runs = self.persistence.get_completed_runs(task_id)
-            n_completed = len(completed_runs)
-            n_needed = self.job_config.n_runs_per_task - n_completed
-            if n_needed > 0:
-                remaining[task_id] = n_needed
-        return remaining
-
-    def get_job_stats(self, task_ids: list[str]) -> JobStats:
-        """Calculate current job statistics.
-
-        Args:
-            task_ids: List of all task IDs
-
-        Returns:
-            JobStats with current counts
-        """
-        n_total_tasks = len(task_ids)
-        n_runs_per_task = self.job_config.n_runs_per_task
-        total_runs = n_total_tasks * n_runs_per_task
-
-        completed_runs = 0
-        failed_runs = 0
-        exception_counts: dict[str, int] = defaultdict(int)
-
-        scores_benign: list[float] = []
-        scores_attack: list[float] = []
-
-        # Load all index entries to get stats
-        index_entries = self.persistence.load_index()
-        for entry in index_entries:
-            if entry.exception_type is None:
-                # Completed successfully
-                completed_runs += 1
-                if entry.benign_score is not None:
-                    scores_benign.append(entry.benign_score)
-                if entry.attack_score is not None:
-                    scores_attack.append(entry.attack_score)
-            else:
-                # Failed with exception
-                failed_runs += 1
-                exception_counts[entry.exception_type] += 1
-
-        remaining_runs = total_runs - completed_runs - failed_runs
-
-        return JobStats(
-            n_total_tasks=n_total_tasks,
-            n_runs_per_task=n_runs_per_task,
-            n_completed_runs=completed_runs,
-            n_failed_runs=failed_runs,
-            n_remaining_runs=remaining_runs,
-            avg_benign_score=sum(scores_benign) / len(scores_benign) if scores_benign else None,
-            avg_attack_score=sum(scores_attack) / len(scores_attack) if scores_attack else None,
-            exception_counts=dict(exception_counts),
-        )
 
     def _cleanup_for_retry(
         self,

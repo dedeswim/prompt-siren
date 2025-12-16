@@ -22,9 +22,6 @@ from .models import (
     ExceptionInfo,
     INDEX_FILENAME,
     JobConfig,
-    JobResult,
-    JobStats,
-    RESULT_FILENAME,
     RunIndexEntry,
     TASK_EXECUTION_FILENAME,
     TASK_RESULT_FILENAME,
@@ -43,7 +40,6 @@ class JobPersistence:
     Directory structure:
         job_dir/
             config.yaml           # Job configuration
-            result.json           # Aggregated job results
             index.jsonl           # Index of all task runs
             <task_id>/
                 <run_id>/            # 8-char UUID
@@ -80,20 +76,6 @@ class JobPersistence:
         config_path = job_dir / CONFIG_FILENAME
         if not config_path.exists():
             _save_config_yaml(config_path, job_config)
-
-        # Initialize result.json if it doesn't exist
-        result_path = job_dir / RESULT_FILENAME
-        if not result_path.exists():
-            initial_result = JobResult(
-                job_name=job_config.job_name,
-                started_at=datetime.now(),
-                stats=JobStats(
-                    n_total_tasks=0,
-                    n_runs_per_task=job_config.n_runs_per_task,
-                ),
-            )
-            with open(result_path, "w") as f:
-                f.write(initial_result.model_dump_json(indent=2))
 
         return cls(job_dir, job_config)
 
@@ -411,33 +393,6 @@ class JobPersistence:
         with FileLock(lock_path):
             with open(index_path, "a") as f:
                 f.write(entry.model_dump_json() + "\n")
-
-    def update_job_result(self, stats: JobStats, is_complete: bool = False) -> None:
-        """Update the job result with current statistics.
-
-        Args:
-            stats: Current job statistics
-            is_complete: Whether the job is complete
-        """
-        result_path = self.job_dir / RESULT_FILENAME
-
-        # Load existing result to preserve original start time
-        if result_path.exists():
-            existing_result = JobResult.model_validate_json(result_path.read_text())
-            started_at = existing_result.started_at
-        else:
-            started_at = datetime.now()
-
-        result = JobResult(
-            job_name=self.job_config.job_name,
-            started_at=started_at,
-            finished_at=datetime.now() if is_complete else None,
-            is_complete=is_complete,
-            stats=stats,
-        )
-
-        with open(result_path, "w") as f:
-            f.write(result.model_dump_json(indent=2))
 
     def load_index(self) -> list[RunIndexEntry]:
         """Load all entries from the job index.

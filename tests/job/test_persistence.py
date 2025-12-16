@@ -18,8 +18,6 @@ from prompt_siren.job.models import (
     ExceptionInfo,
     INDEX_FILENAME,
     JobConfig,
-    JobStats,
-    RESULT_FILENAME,
     TASK_RESULT_FILENAME,
     TaskRunResult,
 )
@@ -320,26 +318,6 @@ class TestDeleteRun:
         """Test that delete_run returns False if run doesn't exist."""
         result = job_persistence.delete_run("nonexistent", "xyz99999")
         assert result is False
-
-
-class TestUpdateJobResult:
-    """Tests for JobPersistence.update_job_result method."""
-
-    def test_updates_result_file_with_stats_and_completion_status(
-        self, job_persistence: JobPersistence
-    ):
-        """Test that update_job_result writes stats and is_complete to result.json."""
-        stats = JobStats(
-            n_total_tasks=10,
-            n_completed_runs=10,
-            avg_benign_score=0.85,
-        )
-
-        job_persistence.update_job_result(stats, is_complete=True)
-
-        content = (job_persistence.job_dir / RESULT_FILENAME).read_text()
-        assert "0.85" in content
-        assert '"is_complete": true' in content
 
 
 class TestRemoveIndexEntriesByPaths:

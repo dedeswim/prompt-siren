@@ -81,29 +81,6 @@ class JobConfig(ExperimentConfig):
     n_runs_per_task: int = Field(default=1, ge=1, description="Number of runs per task for pass@k")
 
 
-class JobStats(BaseModel):
-    """Statistics for a job."""
-
-    n_total_tasks: int
-    n_runs_per_task: int = 1
-    n_completed_runs: int = 0
-    n_failed_runs: int = 0
-    n_remaining_runs: int = 0
-    avg_benign_score: float | None = None
-    avg_attack_score: float | None = None
-    exception_counts: dict[str, int] = Field(default_factory=dict)
-
-
-class JobResult(BaseModel):
-    """Aggregated result for a job, stored in result.json."""
-
-    job_name: str
-    started_at: datetime
-    finished_at: datetime | None = None
-    is_complete: bool = False
-    stats: JobStats
-
-
 class RunIndexEntry(BaseModel):
     """Entry in per-job index.jsonl for fast result lookup."""
 
@@ -118,7 +95,6 @@ class RunIndexEntry(BaseModel):
 
 # Constants for file names
 CONFIG_FILENAME = "config.yaml"
-RESULT_FILENAME = "result.json"
 INDEX_FILENAME = "index.jsonl"
 TASK_RESULT_FILENAME = "result.json"
 TASK_EXECUTION_FILENAME = "execution.json"
