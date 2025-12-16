@@ -387,5 +387,3 @@ def _parse_value(value: str) -> str | int | float | bool:
         return value[1:-1]
 
     return value
-
-

@@ -75,5 +75,3 @@ def generate_job_name(
     timestamp_str = timestamp.strftime("%Y-%m-%d_%H-%M-%S")
 
     return f"{dataset_safe}_{agent_safe}_{attack_safe}_{timestamp_str}"
-
-
