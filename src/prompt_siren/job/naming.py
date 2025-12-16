@@ -77,27 +77,3 @@ def generate_job_name(
     return f"{dataset_safe}_{agent_safe}_{attack_safe}_{timestamp_str}"
 
 
-def parse_job_name(job_name: str) -> dict[str, str] | None:
-    """Parse a job name back into its components.
-
-    Note: This is best-effort parsing since sanitization may have removed
-    information. The timestamp is the most reliable component.
-
-    Args:
-        job_name: Job name to parse
-
-    Returns:
-        Dictionary with 'timestamp' and 'prefix' keys if parseable, None otherwise
-    """
-    # Try to extract timestamp from the end (YYYY-MM-DD_HH-MM-SS)
-    timestamp_pattern = r"(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})$"
-    match = re.search(timestamp_pattern, job_name)
-
-    if match:
-        timestamp_str = match.group(1)
-        prefix = job_name[: match.start()].rstrip("_")
-        return {
-            "timestamp": timestamp_str,
-            "prefix": prefix,
-        }
-    return None

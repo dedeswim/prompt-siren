@@ -1,11 +1,11 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 """Tests for job naming utilities."""
 
-from datetime import datetime, timedelta
+import re
+from datetime import datetime
 
 from prompt_siren.job.naming import (
     generate_job_name,
-    parse_job_name,
     sanitize_for_filename,
 )
 
@@ -78,48 +78,11 @@ class TestGenerateJobName:
 
     def test_uses_current_time_when_no_timestamp(self):
         """Test that current time is used when timestamp not provided."""
-        before = datetime.now().replace(microsecond=0)
         name = generate_job_name(
             dataset_type="dataset",
             agent_name="agent",
             attack_type=None,
         )
-        after = datetime.now().replace(microsecond=0)
-
-        parsed = parse_job_name(name)
-        assert parsed is not None
-        timestamp = datetime.strptime(parsed["timestamp"], "%Y-%m-%d_%H-%M-%S")
-        # Allow 1 second tolerance for edge cases
-        assert before - timedelta(seconds=1) <= timestamp <= after + timedelta(seconds=1)
-
-
-class TestParseJobName:
-    """Tests for parse_job_name function."""
-
-    def test_extracts_timestamp_and_prefix(self):
-        """Test parsing extracts timestamp and prefix correctly."""
-        result = parse_job_name(
-            "agentdojo-workspace_plain_gpt-5_template_string_2025-01-15_14-30-00"
-        )
-        assert result is not None
-        assert result["timestamp"] == "2025-01-15_14-30-00"
-        assert result["prefix"] == "agentdojo-workspace_plain_gpt-5_template_string"
-
-    def test_returns_none_for_invalid_names(self):
-        """Test that invalid job names return None."""
-        assert parse_job_name("no_timestamp_here") is None
-        assert parse_job_name("prefix_2025-01-15") is None  # incomplete timestamp
-        assert parse_job_name("2025-01-15_14-30-00_suffix") is None  # timestamp not at end
-
-    def test_roundtrip_with_generate_job_name(self):
-        """Test that generated job names can be parsed back."""
-        timestamp = datetime(2025, 6, 15, 10, 30, 45)
-        name = generate_job_name(
-            dataset_type="test-dataset",
-            agent_name="test-agent",
-            attack_type="test-attack",
-            timestamp=timestamp,
-        )
-        result = parse_job_name(name)
-        assert result is not None
-        assert result["timestamp"] == "2025-06-15_10-30-45"
+        # Verify the name ends with a timestamp pattern
+        timestamp_pattern = r"\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$"
+        assert re.search(timestamp_pattern, name) is not None

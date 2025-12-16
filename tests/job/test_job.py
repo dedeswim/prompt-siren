@@ -14,7 +14,7 @@ from prompt_siren.config.experiment_config import (
     OutputConfig,
     TelemetryConfig,
 )
-from prompt_siren.job import Job, JobConfigMismatchError, list_jobs
+from prompt_siren.job import Job, JobConfigMismatchError
 from prompt_siren.job.job import _apply_resume_overrides
 from prompt_siren.job.models import (
     CONFIG_FILENAME,
@@ -336,55 +336,6 @@ class TestJobToExperimentConfig:
         assert converted.dataset.type == experiment_config_with_attack.dataset.type
         assert converted.attack is not None
         assert converted.attack.type == "template_string"
-
-
-class TestListJobs:
-    """Tests for list_jobs function."""
-
-    def test_lists_all_jobs_in_directory(self, experiment_config: ExperimentConfig, tmp_path: Path):
-        """Test that list_jobs returns all jobs in directory."""
-        Job.create(
-            experiment_config=experiment_config,
-            execution_mode="benign",
-            jobs_dir=tmp_path,
-            job_name="job_a",
-            agent_name="test",
-        )
-        Job.create(
-            experiment_config=experiment_config,
-            execution_mode="benign",
-            jobs_dir=tmp_path,
-            job_name="job_b",
-            agent_name="test",
-        )
-
-        jobs = list_jobs(tmp_path)
-        assert len(jobs) == 2
-        job_names = [j[1].job_name for j in jobs if j[1] is not None]
-        assert "job_a" in job_names
-        assert "job_b" in job_names
-
-    def test_handles_corrupted_config_gracefully(
-        self, experiment_config: ExperimentConfig, tmp_path: Path
-    ):
-        """Test that corrupted job configs return None instead of raising."""
-        Job.create(
-            experiment_config=experiment_config,
-            execution_mode="benign",
-            jobs_dir=tmp_path,
-            job_name="valid_job",
-            agent_name="test",
-        )
-
-        corrupted_dir = tmp_path / "corrupted_job"
-        corrupted_dir.mkdir()
-        (corrupted_dir / CONFIG_FILENAME).write_text("invalid: yaml: content: [")
-
-        jobs = list_jobs(tmp_path)
-        assert len(jobs) == 2
-
-        corrupted = next(j for j in jobs if j[0].name == "corrupted_job")
-        assert corrupted[1] is None
 
 
 class TestApplyResumeOverrides:

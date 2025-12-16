@@ -389,29 +389,3 @@ def _parse_value(value: str) -> str | int | float | bool:
     return value
 
 
-def list_jobs(jobs_dir: Path) -> list[tuple[Path, JobConfig | None]]:
-    """List all jobs in a jobs directory.
-
-    Args:
-        jobs_dir: Base directory for jobs
-
-    Returns:
-        List of (job_dir, job_config) tuples. job_config is None if config couldn't be loaded.
-    """
-    if not jobs_dir.exists():
-        return []
-
-    jobs = []
-    for job_path in jobs_dir.iterdir():
-        if not job_path.is_dir():
-            continue
-
-        config_path = job_path / CONFIG_FILENAME
-        if config_path.exists():
-            try:
-                job_config = _load_config_yaml(config_path)
-                jobs.append((job_path, job_config))
-            except Exception:
-                jobs.append((job_path, None))
-
-    return sorted(jobs, key=lambda x: x[0].name)
