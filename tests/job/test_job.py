@@ -192,6 +192,100 @@ class TestJobResume:
 class TestJobCleanupForRetry:
     """Tests for retry cleanup behavior on Job.resume."""
 
+    def test_cancelled_error_deleted_when_specified(
+        self, experiment_config: ExperimentConfig, tmp_path: Path
+    ):
+        """Test that CancelledError runs are deleted when specified in retry_on_errors."""
+        job = Job.create(
+            experiment_config=experiment_config,
+            execution_mode="benign",
+            jobs_dir=tmp_path,
+            job_name="test_job",
+            agent_name="test",
+        )
+
+        # Create a failed run with CancelledError
+        run_id = "abc12345"
+        run_dir = job.job_dir / "task1" / run_id
+        run_dir.mkdir(parents=True)
+        result = TaskRunResult(
+            task_id="task1",
+            run_id=run_id,
+            started_at=datetime.now(),
+            finished_at=datetime.now(),
+            exception_info=ExceptionInfo(
+                exception_type="CancelledError",
+                exception_message="cancelled",
+                exception_traceback="",
+                occurred_at=datetime.now(),
+            ),
+        )
+        (run_dir / "result.json").write_text(result.model_dump_json())
+
+        index_entry = RunIndexEntry(
+            task_id="task1",
+            run_id=run_id,
+            timestamp=datetime.now(),
+            benign_score=None,
+            attack_score=None,
+            exception_type="CancelledError",
+            path=Path(f"task1/{run_id}"),
+        )
+        (job.job_dir / "index.jsonl").write_text(index_entry.model_dump_json() + "\n")
+
+        # Resume with CancelledError in retry list
+        Job.resume(job_dir=job.job_dir, retry_on_errors=["CancelledError"])
+
+        # Run should be deleted
+        assert not run_dir.exists()
+
+    def test_cancelled_error_preserved_when_not_in_retry_list(
+        self, experiment_config: ExperimentConfig, tmp_path: Path
+    ):
+        """Test that CancelledError runs are preserved when not in retry_on_errors."""
+        job = Job.create(
+            experiment_config=experiment_config,
+            execution_mode="benign",
+            jobs_dir=tmp_path,
+            job_name="test_job",
+            agent_name="test",
+        )
+
+        # Create a failed run with CancelledError
+        run_id = "abc12345"
+        run_dir = job.job_dir / "task1" / run_id
+        run_dir.mkdir(parents=True)
+        result = TaskRunResult(
+            task_id="task1",
+            run_id=run_id,
+            started_at=datetime.now(),
+            finished_at=datetime.now(),
+            exception_info=ExceptionInfo(
+                exception_type="CancelledError",
+                exception_message="cancelled",
+                exception_traceback="",
+                occurred_at=datetime.now(),
+            ),
+        )
+        (run_dir / "result.json").write_text(result.model_dump_json())
+
+        index_entry = RunIndexEntry(
+            task_id="task1",
+            run_id=run_id,
+            timestamp=datetime.now(),
+            benign_score=None,
+            attack_score=None,
+            exception_type="CancelledError",
+            path=Path(f"task1/{run_id}"),
+        )
+        (job.job_dir / "index.jsonl").write_text(index_entry.model_dump_json() + "\n")
+
+        # Resume with only TimeoutError in retry list (not CancelledError)
+        Job.resume(job_dir=job.job_dir, retry_on_errors=["TimeoutError"])
+
+        # CancelledError run should be preserved
+        assert run_dir.exists()
+
     def test_retry_on_errors_deletes_matching_failed_runs(
         self, experiment_config: ExperimentConfig, tmp_path: Path
     ):

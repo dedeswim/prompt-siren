@@ -5,17 +5,18 @@ Tests both benign and attack execution paths including error handling,
 concurrency, persistence, and result aggregation.
 """
 
+import asyncio
 import sys
+from datetime import datetime
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 from pydantic_ai.messages import ModelMessage
 
-# ExceptionGroup is built-in in Python 3.11+, needs backport for 3.10
+# ExceptionGroup/BaseExceptionGroup are built-in in Python 3.11+, needs backport for 3.10
 if sys.version_info < (3, 11):
-    from exceptiongroup import ExceptionGroup
-
-from unittest.mock import AsyncMock
+    from exceptiongroup import BaseExceptionGroup, ExceptionGroup
 
 from prompt_siren.agents.plain import PlainAgent, PlainAgentConfig
 from prompt_siren.config.experiment_config import (
@@ -25,6 +26,7 @@ from prompt_siren.config.experiment_config import (
     ExperimentConfig,
 )
 from prompt_siren.job import Job
+from prompt_siren.job.models import ExceptionInfo, RunIndexEntry, TaskRunResult
 from prompt_siren.run import (
     run_single_tasks_without_attack,
     run_task_couples_with_attack,
@@ -896,3 +898,143 @@ class TestMaliciousTaskCustomPrompt:
         # Verify task completed successfully
         assert len(results) == 1
         assert results[0].task_id == "test_malicious"
+
+
+class TestCancelledErrorHandling:
+    """Tests for CancelledError handling and persistence."""
+
+    async def test_cancelled_error_is_persisted(
+        self,
+        mock_environment: MockEnvironment,
+        mock_dataset: MockDataset,
+        tmp_path: Path,
+    ):
+        """Test that CancelledError is caught and persisted with exception info.
+
+        Note: Only CancelledError is explicitly persisted before re-raising.
+        Regular exceptions are caught in the outer wrapper but not persisted.
+        """
+
+        # Create an agent that raises CancelledError
+        async def cancelling_model(messages, model_settings=None):
+            raise asyncio.CancelledError()
+
+        agent = PlainAgent(
+            PlainAgentConfig(model=FunctionModel(cancelling_model), model_settings=ModelSettings())
+        )
+        task = create_mock_benign_task("failing_task", {"eval1": 1.0})
+
+        # Create job with persistence
+        experiment_config = ExperimentConfig(
+            agent=AgentConfig(type="plain", config={"model": "test"}),
+            dataset=DatasetConfig(type="mock", config={}),
+        )
+        job = Job.create(
+            experiment_config=experiment_config,
+            execution_mode="benign",
+            jobs_dir=tmp_path,
+            job_name="test_cancelledError_job",
+            agent_name="test",
+        )
+
+        # CancelledError is wrapped in BaseExceptionGroup
+        with pytest.raises(BaseExceptionGroup) as exc_info:
+            await run_single_tasks_without_attack(
+                tasks=[task],
+                agent=agent,
+                env=mock_environment,
+                system_prompt=None,
+                toolsets=mock_dataset.default_toolsets,
+                persistence=job.persistence,
+                instrument=False,
+            )
+        assert len(exc_info.value.exceptions) == 1
+        assert isinstance(exc_info.value.exceptions[0], asyncio.CancelledError)
+
+        # Verify the task run was persisted with the exception info
+        task_dir = job.job_dir / "failing_task"
+        assert task_dir.exists(), "Task directory should exist"
+
+        run_dirs = list(task_dir.iterdir())
+        assert len(run_dirs) == 1, "Should have one run directory"
+
+        result_file = run_dirs[0] / "result.json"
+        assert result_file.exists(), "result.json should exist"
+
+        # Parse and verify the result
+        result = TaskRunResult.model_validate_json(result_file.read_text())
+        assert result.exception_info is not None, "Should have exception info"
+        assert result.exception_info.exception_type == "CancelledError"
+
+    @pytest.mark.parametrize(
+        "exception_type",
+        ["CancelledError", "TimeoutError"],
+    )
+    async def test_exception_deleted_on_resume_when_in_retry_list(
+        self,
+        mock_environment: MockEnvironment,
+        mock_dataset: MockDataset,
+        tmp_path: Path,
+        exception_type: str,
+    ):
+        """Test that failed tasks are deleted when resuming with matching retry_on_errors."""
+        # Create job
+        experiment_config = ExperimentConfig(
+            agent=AgentConfig(type="plain", config={"model": "test"}),
+            dataset=DatasetConfig(type="mock", config={}),
+        )
+        job = Job.create(
+            experiment_config=experiment_config,
+            execution_mode="benign",
+            jobs_dir=tmp_path,
+            job_name=f"test_resume_{exception_type.lower()}_job",
+            agent_name="test",
+        )
+
+        # Manually create a failed task run
+        run_id = "abc12345"
+        run_dir = job.job_dir / "failed_task" / run_id
+        run_dir.mkdir(parents=True)
+
+        result = TaskRunResult(
+            task_id="failed_task",
+            run_id=run_id,
+            started_at=datetime.now(),
+            finished_at=datetime.now(),
+            exception_info=ExceptionInfo(
+                exception_type=exception_type,
+                exception_message=f"Task failed with {exception_type}",
+                exception_traceback="",
+                occurred_at=datetime.now(),
+            ),
+        )
+        (run_dir / "result.json").write_text(result.model_dump_json())
+
+        # Create index entry
+        index_entry = RunIndexEntry(
+            task_id="failed_task",
+            run_id=run_id,
+            timestamp=datetime.now(),
+            benign_score=None,
+            attack_score=None,
+            exception_type=exception_type,
+            path=Path(f"failed_task/{run_id}"),
+        )
+        (job.job_dir / "index.jsonl").write_text(index_entry.model_dump_json() + "\n")
+
+        # Verify run exists before resume
+        assert run_dir.exists()
+
+        # Resume with exception type in retry list
+        resumed_job = Job.resume(job_dir=job.job_dir, retry_on_errors=[exception_type])
+
+        # Verify the failed run was deleted
+        assert not run_dir.exists(), f"{exception_type} run should be deleted"
+
+        # Verify index is updated
+        entries = resumed_job.persistence.load_index()
+        assert len(entries) == 0, "Index should be empty after cleanup"
+
+        # Verify the task now needs to be run again
+        tasks_needing_runs = resumed_job.filter_tasks_needing_runs(["failed_task"])
+        assert "failed_task" in tasks_needing_runs

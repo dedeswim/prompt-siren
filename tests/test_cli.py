@@ -120,10 +120,46 @@ class TestJobsResumeCommand:
 
         assert result.exit_code != 0
 
+    def test_resume_defaults_to_cancelled_error_retry(
+        self, cli_runner: CliRunner, mock_job_config: JobConfig, tmp_path: Path
+    ):
+        """Test that --retry-on-error defaults to CancelledError."""
+        job_dir = tmp_path / "test_job"
+        job_dir.mkdir()
+        _save_config_yaml(job_dir / "config.yaml", mock_job_config)
+
+        with patch("prompt_siren.cli.run_benign_experiment", AsyncMock(return_value={})):
+            with patch.object(Job, "resume", wraps=Job.resume) as mock_resume:
+                # No -e flag provided - should use default CancelledError
+                result = cli_runner.invoke(main, ["jobs", "resume", "-p", str(job_dir)])
+
+        assert result.exit_code == 0, f"CLI failed: {result.output}"
+        mock_resume.assert_called_once()
+        call_kwargs = mock_resume.call_args.kwargs
+        assert call_kwargs.get("retry_on_errors") == ["CancelledError"]
+
+    def test_resume_empty_string_disables_retries(
+        self, cli_runner: CliRunner, mock_job_config: JobConfig, tmp_path: Path
+    ):
+        """Test that -e '' disables retry behavior."""
+        job_dir = tmp_path / "test_job"
+        job_dir.mkdir()
+        _save_config_yaml(job_dir / "config.yaml", mock_job_config)
+
+        with patch("prompt_siren.cli.run_benign_experiment", AsyncMock(return_value={})):
+            with patch.object(Job, "resume", wraps=Job.resume) as mock_resume:
+                # Empty string should disable retries
+                result = cli_runner.invoke(main, ["jobs", "resume", "-p", str(job_dir), "-e", ""])
+
+        assert result.exit_code == 0, f"CLI failed: {result.output}"
+        mock_resume.assert_called_once()
+        call_kwargs = mock_resume.call_args.kwargs
+        assert call_kwargs.get("retry_on_errors") is None
+
     def test_resume_with_retry_on_error_flag(
         self, cli_runner: CliRunner, mock_job_config: JobConfig, tmp_path: Path
     ):
-        """Test that --retry-on-error flag is passed to Job.resume."""
+        """Test that --retry-on-error flag overrides the default."""
         job_dir = tmp_path / "test_job"
         job_dir.mkdir()
         _save_config_yaml(job_dir / "config.yaml", mock_job_config)
@@ -138,6 +174,7 @@ class TestJobsResumeCommand:
         assert result.exit_code == 0, f"CLI failed: {result.output}"
         mock_resume.assert_called_once()
         call_kwargs = mock_resume.call_args.kwargs
+        # When user specifies -e TimeoutError, it replaces the default (not adds to it)
         assert call_kwargs.get("retry_on_errors") == ["TimeoutError"]
 
     def test_resume_with_retry_on_error_short_flag(

@@ -227,7 +227,10 @@ def start_attack(
     "-e",
     "--retry-on-error",
     multiple=True,
-    help="Retry tasks that failed with this error type (can be used multiple times)",
+    default=("CancelledError",),
+    show_default=True,
+    help="Retry tasks that failed with this error type (can be used multiple times). "
+    "Use -e '' to disable retries.",
 )
 @click.argument("overrides", nargs=-1)
 def resume(
@@ -243,14 +246,24 @@ def resume(
     Examples:
         prompt-siren jobs resume -p ./jobs/my-job
         prompt-siren jobs resume -p ./jobs/my-job -e TimeoutError
-        prompt-siren jobs resume -p ./jobs/my-job --retry-on-error TimeoutError
+        prompt-siren jobs resume -p ./jobs/my-job -e TimeoutError -e CancelledError
+        prompt-siren jobs resume -p ./jobs/my-job -e ''  # disable retries
         prompt-siren jobs resume -p ./jobs/my-job execution.concurrency=8
     """
+    # Handle retry_on_error: empty string means "no retries"
+    retry_errors: list[str] | None = None
+    if retry_on_error:
+        # Filter out empty strings and convert to list
+        non_empty = [e for e in retry_on_error if e]
+        if non_empty:
+            retry_errors = non_empty
+        # If all were empty strings (e.g., -e ''), retry_errors stays None
+
     try:
         job = Job.resume(
             job_dir=job_path,
             overrides=list(overrides) if overrides else None,
-            retry_on_errors=list(retry_on_error) if retry_on_error else None,
+            retry_on_errors=retry_errors,
         )
     except FileNotFoundError as e:
         click.echo(f"Error: {e}", err=True)

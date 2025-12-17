@@ -99,21 +99,34 @@ The command loads the original configuration, skips completed tasks, and continu
 ### Options
 
 ```bash
--p, --job-path PATH      Path to job directory (required)
--e, --retry-on-error TYPE  Retry tasks that failed with this error (repeatable)
+-p, --job-path PATH        Path to job directory (required)
+-e, --retry-on-error TYPE  Retry tasks that failed with this error (repeatable, default: CancelledError)
+```
+
+### Default Behavior
+
+By default, `jobs resume` automatically retries tasks that were cancelled (e.g., by Ctrl+C). This ensures that interrupted jobs can be cleanly resumed without manually specifying `--retry-on-error CancelledError`.
+
+To disable automatic retries and only continue incomplete tasks, use `-e ''`:
+
+```bash
+prompt-siren jobs resume -p ./jobs/my-job -e ''
 ```
 
 ### Examples
 
 ```bash
-# Basic resume
+# Basic resume (retries cancelled tasks by default)
 prompt-siren jobs resume -p ./jobs/agentdojo-workspace_plain_gpt-4_benign_2025-01-15_14-30-00
 
-# Retry tasks that timed out
-prompt-siren jobs resume -p ./jobs/my-job --retry-on-error TimeoutError
+# Also retry tasks that timed out
+prompt-siren jobs resume -p ./jobs/my-job -e TimeoutError -e CancelledError
 
-# Retry multiple error types
-prompt-siren jobs resume -p ./jobs/my-job -e TimeoutError -e ConnectionError
+# Retry only timeouts, not cancelled tasks
+prompt-siren jobs resume -p ./jobs/my-job -e TimeoutError
+
+# Disable all retries (only continue incomplete tasks)
+prompt-siren jobs resume -p ./jobs/my-job -e ''
 
 # Resume with higher concurrency
 prompt-siren jobs resume -p ./jobs/my-job execution.concurrency=16
