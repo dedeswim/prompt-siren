@@ -384,7 +384,7 @@ def _save_config_yaml(config_path: Path, job_config: JobConfig) -> None:
         yaml.dump(config_dict, f, default_flow_style=False, sort_keys=False)
 
 
-def _load_config_yaml(config_path: Path) -> JobConfig:
+def load_config_yaml(config_path: Path) -> JobConfig:
     """Load job config from YAML file."""
     with open(config_path) as f:
         config_dict = yaml.safe_load(f)

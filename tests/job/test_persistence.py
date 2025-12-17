@@ -21,9 +21,9 @@ from prompt_siren.job.models import (
     TaskRunResult,
 )
 from prompt_siren.job.persistence import (
-    _load_config_yaml,
     _save_config_yaml,
     JobPersistence,
+    load_config_yaml,
 )
 from prompt_siren.tasks import (
     BenignTask,
@@ -302,7 +302,7 @@ class TestConfigYamlRoundtrip:
         config_path = tmp_path / "config.yaml"
 
         _save_config_yaml(config_path, job_config)
-        loaded = _load_config_yaml(config_path)
+        loaded = load_config_yaml(config_path)
 
         assert loaded.job_name == job_config.job_name
         assert loaded.execution_mode == job_config.execution_mode

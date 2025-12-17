@@ -17,7 +17,7 @@ from .models import (
     JobConfig,
 )
 from .naming import generate_job_name
-from .persistence import _load_config_yaml, _save_config_yaml, JobPersistence
+from .persistence import _save_config_yaml, JobPersistence, load_config_yaml
 
 # Fields that can be overridden on resume
 RESUMABLE_OVERRIDE_PREFIXES = ("execution.", "telemetry.", "output.", "usage_limits.")
@@ -138,7 +138,7 @@ class Job:
             raise FileNotFoundError(f"Job config not found: {config_path}")
 
         # Load existing config
-        job_config = _load_config_yaml(config_path)
+        job_config = load_config_yaml(config_path)
 
         # Validate and apply overrides
         if overrides:

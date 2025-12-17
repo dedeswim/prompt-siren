@@ -25,7 +25,7 @@ from tabulate import tabulate
 from typing_extensions import assert_never
 
 from .job.models import CONFIG_FILENAME, INDEX_FILENAME, JobConfig, RunIndexEntry
-from .job.persistence import _load_config_yaml
+from .job.persistence import load_config_yaml
 
 
 class GroupBy(StrEnum):
@@ -160,7 +160,7 @@ def _read_job_index(job_dir: Path) -> list[dict[str, Any]]:
     if not index_path.exists():
         return []  # Job exists but no results yet
 
-    job_config = _load_config_yaml(config_path)
+    job_config = load_config_yaml(config_path)
 
     with index_path.open() as f:
         return [_parse_index_entry(line.strip(), job_config) for line in f if line.strip()]

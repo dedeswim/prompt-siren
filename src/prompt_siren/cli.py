@@ -282,74 +282,9 @@ def run():
     """Run experiments. Alias for 'jobs start'."""
 
 
-@run.command(name="benign")
-@_add_options(_start_common_options)
-def run_benign(
-    config_dir: Path | None,
-    config_name: str,
-    job_name: str | None,
-    jobs_dir: Path,
-    multirun: bool,
-    cfg: str | None,
-    resolve: bool,
-    info: str | None,
-    overrides: tuple[str, ...],
-):
-    """Run benign-only evaluation (no attacks). Alias for 'jobs start benign'.
-
-    Examples:
-        prompt-siren run benign +dataset=agentdojo-workspace
-        prompt-siren run benign +dataset=agentdojo-workspace agent.config.model=azure:gpt-5
-        prompt-siren run benign --multirun +dataset=agentdojo-workspace agent.config.model=azure:gpt-5,azure:gpt-5-nano
-    """
-    _run_job(
-        config_dir=config_dir,
-        config_name=config_name,
-        overrides=list(overrides),
-        execution_mode="benign",
-        job_name=job_name,
-        jobs_dir=jobs_dir,
-        multirun=multirun,
-        print_config=cfg,
-        resolve=resolve,
-        info=info,
-    )
-
-
-@run.command(name="attack")
-@_add_options(_start_common_options)
-def run_attack(
-    config_dir: Path | None,
-    config_name: str,
-    job_name: str | None,
-    jobs_dir: Path,
-    multirun: bool,
-    cfg: str | None,
-    resolve: bool,
-    info: str | None,
-    overrides: tuple[str, ...],
-):
-    """Run attack evaluation. Alias for 'jobs start attack'.
-
-    Requires attack configuration (via +attack=<name> override or in config file).
-
-    Examples:
-        prompt-siren run attack +dataset=agentdojo-workspace +attack=template_string
-        prompt-siren run attack +dataset=agentdojo-workspace +attack=mini-goat agent.config.model=azure:gpt-5
-        prompt-siren run attack --multirun +dataset=agentdojo-workspace +attack=template_string,mini-goat
-    """
-    _run_job(
-        config_dir=config_dir,
-        config_name=config_name,
-        overrides=list(overrides),
-        execution_mode="attack",
-        job_name=job_name,
-        jobs_dir=jobs_dir,
-        multirun=multirun,
-        print_config=cfg,
-        resolve=resolve,
-        info=info,
-    )
+# Register the same command objects under the 'run' group as aliases
+run.add_command(start_benign, name="benign")
+run.add_command(start_attack, name="attack")
 
 
 @main.command()
