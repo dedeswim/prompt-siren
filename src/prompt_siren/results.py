@@ -48,7 +48,7 @@ class Format(StrEnum):
 
 
 # Grouping columns used for aggregation
-# Note: config_hash is not included to allow grouping across dataset suites with the same agent/attack config
+# Note: job_name is not included to allow grouping across jobs with the same agent/attack config
 _ALL_GROUP_COLS = ["dataset", "agent_type", "agent_name", "attack_type"]
 
 
@@ -126,8 +126,7 @@ def _parse_index_entry(line: str, job_config: JobConfig) -> dict[str, Any]:
         row["attack_type"] = "benign"
         row["attack_config"] = None
 
-    # Create a config hash from job name (or compute from config)
-    row["config_hash"] = job_config.job_name[:8] if job_config.job_name else "unknown"
+    row["job_name"] = job_config.job_name
 
     # Extract dataset_suite from dataset_config
     dataset_config = row.get("dataset_config", {})
@@ -202,7 +201,7 @@ def _group_by_task(df: pd.DataFrame, k: int = 1) -> pd.DataFrame:
     """Group results by task_id, computing pass@k metric.
 
     This is the first stage of grouping that always happens regardless of user selection.
-    Groups by all configuration columns (dataset, agent_type, agent_name, attack_type, config_hash)
+    Groups by all configuration columns (dataset, agent_type, agent_name, attack_type, job_name)
     plus dataset_suite and task_id. The dataset_suite is included to properly handle task name
     clashes across dataset suites when doing dataset_suite-level aggregation.
 
@@ -226,8 +225,8 @@ def _group_by_task(df: pd.DataFrame, k: int = 1) -> pd.DataFrame:
         return df
 
     # Group by configuration and task
-    # Include dataset_suite and config_hash to disambiguate tasks from different suites with the same name
-    group_cols = [*_ALL_GROUP_COLS, "dataset_suite", "config_hash", "task_id"]
+    # Include dataset_suite and job_name to disambiguate tasks from different jobs
+    group_cols = [*_ALL_GROUP_COLS, "dataset_suite", "job_name", "task_id"]
 
     if k == 1:
         # Original behavior: average across timestamps
@@ -305,7 +304,7 @@ def aggregate_results(
         If multiple k values provided, includes a 'k' column to identify each metric.
         Default view includes: dataset, agent_type, agent_name, attack_type,
         benign_pass@k, attack_pass@k, n_tasks, avg_n_samples
-        (aggregates across dataset_suite's and config_hash variations)
+        (aggregates across dataset_suite's and job_name variations)
 
     Raises:
         ValueError: If any task has fewer than k samples when k > 1

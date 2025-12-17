@@ -125,7 +125,7 @@ uv run prompt-siren results --format=csv
 ### Results Columns
 
 The results table includes:
-- **Configuration columns**: `env_type`, `agent_type`, `attack_type`, `model`, `config_hash`
+- **Configuration columns**: `dataset`, `agent_type`, `agent_name`, `attack_type`
 - **Metric columns**: `benign_pass@k`, `attack_pass@k` - The pass@k scores
 - **Metadata columns**:
   - `n_tasks` - Total number of tasks aggregated
