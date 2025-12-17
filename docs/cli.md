@@ -130,7 +130,7 @@ Only execution-related settings can be changed when resuming:
 |--------|-------------|
 | `execution.*` | Concurrency settings |
 | `telemetry.*` | Logging and tracing |
-| `output.*` | Output configuration |
+| `output.*` | Output configuration (note: `output.jobs_dir` has no effect since the job directory is already set via `-p`) |
 | `usage_limits.*` | Token and request limits |
 
 Dataset, agent, and attack configurations cannot be modified on resume.
