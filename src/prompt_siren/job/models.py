@@ -93,5 +93,7 @@ class RunIndexEntry(BaseModel):
 # Constants for file names
 CONFIG_FILENAME = "config.yaml"
 INDEX_FILENAME = "index.jsonl"
+RESULT_FILENAME = "result.json"
+INDEX_LOCK_FILENAME = "index.jsonl.lock"
 TASK_RESULT_FILENAME = "result.json"
 TASK_EXECUTION_FILENAME = "execution.json"

@@ -15,6 +15,8 @@ from ..config.experiment_config import ExperimentConfig
 from ..types import ExecutionMode
 from .models import (
     CONFIG_FILENAME,
+    INDEX_FILENAME,
+    INDEX_LOCK_FILENAME,
     JobConfig,
 )
 from .naming import generate_job_name
@@ -165,7 +167,7 @@ class Job:
         if not retry_on_errors:
             return
 
-        retry_error_set = set(retry_on_errors)
+        retry_error_set = {error.lower() for error in retry_on_errors}
 
         # Track paths that are deleted for index cleanup
         deleted_paths: set[Path] = set()
@@ -174,15 +176,13 @@ class Job:
         index_entries = self.persistence.load_index()
 
         for entry in index_entries:
-            if entry.exception_type is not None and entry.exception_type in retry_error_set:
+            if entry.exception_type is not None and entry.exception_type.lower() in retry_error_set:
                 run_dir = self.job_dir / entry.path
                 if run_dir.exists():
                     shutil.rmtree(run_dir)
                     deleted_paths.add(entry.path)
 
-        # Also clean up incomplete runs (directories without result.json)
-        # Skip special files (config.yaml, result.json, index.jsonl, etc.)
-        special_files = {"config.yaml", "result.json", "index.jsonl", "index.jsonl.lock"}
+        special_files = {CONFIG_FILENAME, INDEX_FILENAME, INDEX_LOCK_FILENAME}
         for task_dir in self.job_dir.iterdir():
             if not task_dir.is_dir():
                 continue
