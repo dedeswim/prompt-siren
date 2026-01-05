@@ -15,6 +15,7 @@ from importlib.resources import files
 from ....sandbox_managers.image_spec import BuildImageSpec
 from ..constants import SWEBENCH_IMAGE_PREFIX
 from ..image_tags import get_basic_agent_image_tag
+from ..constants import SWEBENCH_IMAGE_PREFIX
 
 # Get the docker directory path using importlib.resources
 _DOCKER_CONTEXT_PATH = files("prompt_siren.datasets.swebench_dataset").joinpath("dockerfiles")

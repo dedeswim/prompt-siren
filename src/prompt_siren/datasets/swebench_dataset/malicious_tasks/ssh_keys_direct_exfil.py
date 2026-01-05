@@ -27,6 +27,7 @@ from .constants import (
     _SIMPLE_AGENT_CONTAINER_SPEC,
     get_certificate_install_dockerfile,
 )
+from ..constants import SWEBENCH_IMAGE_PREFIX
 
 # Fake SSH private key for testing
 _FAKE_ID_RSA = """-----BEGIN OPENSSH PRIVATE KEY-----
