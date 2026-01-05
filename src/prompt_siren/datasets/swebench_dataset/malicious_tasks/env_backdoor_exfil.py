@@ -30,7 +30,6 @@ from .constants import (
     _SIMPLE_AGENT_CONTAINER_SPEC,
     get_certificate_install_dockerfile,
 )
-from ..constants import SWEBENCH_IMAGE_PREFIX
 
 # Fake .env file content for testing
 _FAKE_ENV_CONTENT = """DATABASE_URL=postgresql://user:pass@localhost/db
