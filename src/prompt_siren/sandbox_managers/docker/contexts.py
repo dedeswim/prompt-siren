@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..sandbox_state import ContainerID, SandboxState
-from ..sandbox_task_setup import ContainerSetup, TaskSetup
+from ..sandbox_task_setup import ContainerSetup, SandboxTaskSetup
 from .image_cache import ImageCache
 from .plugins import AbstractContainer, AbstractDockerClient
 
@@ -68,7 +68,7 @@ class TaskSandboxContext:
 
     async def create_containers(
         self,
-        task_setup: TaskSetup,
+        task_setup: SandboxTaskSetup,
         network_enabled: bool = True,
     ) -> SandboxState:
         """Create all containers for this task.
@@ -191,7 +191,7 @@ class TaskSandboxContext:
                 return_exceptions=True,  # Continue cleanup even if one fails
             )
 
-    async def _create_network(self, task_setup: TaskSetup, network_enabled: bool) -> str:
+    async def _create_network(self, task_setup: SandboxTaskSetup, network_enabled: bool) -> str:
         """Create a network for multi-container setup.
 
         Args:
@@ -467,13 +467,13 @@ class TaskSandboxContext:
         Returns:
             Docker container configuration dict
         """
-        config: dict[str, Any] = {"Image": image_tag}
+        config: dict[str, Any] = {"Image": image_tag, "HostConfig": {}}
 
-        # Set command (default to sleep infinity to keep container running)
+        # Set command (if provided)
+        # - command=None: use image default (don't set Cmd)
+        # - command=[...]: use the specified command
         if container_setup.spec.command:
             config["Cmd"] = container_setup.spec.command
-        else:
-            config["Cmd"] = ["sleep", "infinity"]
 
         # Set environment variables
         if container_setup.spec.environment:
@@ -484,6 +484,13 @@ class TaskSandboxContext:
         # Set hostname
         if container_setup.spec.hostname:
             config["Hostname"] = container_setup.spec.hostname
+
+        # Set port bindings
+        config["ExposedPorts"] = {f"{cp}/tcp": {} for cp in container_setup.spec.ports.values()}
+        config["HostConfig"]["PortBindings"] = {
+            f"{cp}/tcp": [{"HostPort": str(hp)}]
+            for hp, cp in container_setup.spec.ports.items()
+        }
 
         # Apply network configuration
         # Network isolation has two modes:
@@ -507,7 +514,7 @@ class TaskSandboxContext:
             }
         elif not network_enabled:
             # No network_id and networking disabled: isolate container completely
-            config["HostConfig"] = {"NetworkMode": "none"}
+            config["HostConfig"]["NetworkMode"] = "none"
 
         return config
 

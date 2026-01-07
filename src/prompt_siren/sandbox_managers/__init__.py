@@ -29,7 +29,6 @@ from .sandbox_task_setup import (
     ContainerSpec,
     NetworkConfig,
     SandboxTaskSetup,
-    TaskSetup,
 )
 
 __all__ = [

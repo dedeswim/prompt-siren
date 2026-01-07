@@ -1,0 +1,502 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+"""Browser environment for web agent tasks.
+
+This environment provides a browser-based execution context for web agent tasks,
+with fresh containers created per task for complete isolation.
+
+Container Management:
+    Follows the same pattern as SWE-bench/BashEnvironment:
+    - setup_batch(): Pulls/prepares all container images upfront
+    - setup_task(): Creates fresh browser + site containers per task
+    - Containers are cleaned up automatically when task context exits
+
+    This provides true parallel execution support - each task gets its own
+    isolated set of containers with fresh state.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from collections.abc import AsyncIterator, Coroutine, Sequence
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
+from typing import Any, get_args, Literal, TypedDict
+
+from pydantic import BaseModel
+from pydantic_ai.messages import BinaryContent
+from typing_extensions import Self
+
+try:
+    from playwright.async_api import async_playwright, Browser, Page, Playwright, Request
+except ImportError as e:
+    raise ImportError(
+        "Browser environment requires the 'playwright' optional dependency. "
+        "Install with: pip install 'prompt-siren[browser]'"
+    ) from e
+
+from ..sandbox_managers.abstract import AbstractSandboxManager
+from ..sandbox_managers.sandbox_state import ContainerID, SandboxState
+from ..sandbox_managers.sandbox_task_setup import (
+    ContainerSetup,
+    ContainerSpec,
+    NetworkConfig,
+    SandboxTaskSetup,
+)
+from ..tasks import BenignTask, MaliciousTask, TaskCouple
+from ..types import InjectionAttacksDict, InjectionVectorID, StrContentAttack
+from .abstract import NonSnapshottableAbstractEnvironment
+
+logger = logging.getLogger(__name__)
+
+# Valid site names for browser environment
+SiteName = Literal["gitea", "answer", "wikijs", "classifieds"]
+
+# Background task tracking for fire-and-forget cleanup operations
+_background_tasks: set[asyncio.Task[Any]] = set()
+
+
+def _fire_and_forget(coro: Coroutine[Any, Any, Any]) -> None:
+    """Schedule a coroutine to run in background without waiting.
+
+    Properly tracks the task to:
+    - Prevent garbage collection before completion
+    - Log any errors that occur
+    - Automatically clean up when done
+    """
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+
+    def _on_done(t: asyncio.Task[Any]) -> None:
+        _background_tasks.discard(t)
+        if t.cancelled():
+            return
+        exc = t.exception()
+        if exc is not None:
+            logger.warning(f"Background task failed: {exc}", exc_info=exc)
+
+    task.add_done_callback(_on_done)
+
+
+class CapturedRequest(TypedDict):
+    """Captured HTTP request from browser."""
+
+    url: str
+    method: str
+    post_data: str | None
+
+
+@dataclass
+class BrowserEnvState:
+    """Environment state for browser-based tasks.
+
+    Attributes:
+        page: The Playwright page object for browser interactions
+        browser: The Playwright browser connection (for closing on reset)
+        playwright: The Playwright instance (for reconnecting on reset)
+        sandbox_state: Container IDs and network info for exec access
+        sandbox_manager: Manager for executing commands in containers
+        task_setup: Task setup for recreating containers on reset
+        start_url: Initial URL for navigation on reset
+        captured_requests: List of captured outgoing requests (for attack evaluation)
+    """
+
+    page: Page
+    browser: Browser
+    playwright: Playwright
+    sandbox_state: SandboxState
+    sandbox_manager: AbstractSandboxManager
+    task_setup: SandboxTaskSetup
+    start_url: str
+    captured_requests: list[CapturedRequest] = field(default_factory=list)
+
+    @property
+    def browser_container_id(self) -> ContainerID:
+        """The browser container ID.
+
+        Useful for evaluators that need to execute commands in the browser container
+        via sandbox_manager.exec().
+        """
+        return self.sandbox_state.agent_container_id
+
+    def get_site_container_id(self, site_name: SiteName) -> ContainerID | None:
+        """Get container ID for a specific site.
+
+        Useful for evaluators that need to inspect site state (database, files, logs)
+        via sandbox_manager.exec().
+
+        Args:
+            site_name: Name of the site (gitea, answer, wikijs, classifieds)
+
+        Returns:
+            Container ID if the site container exists, None otherwise
+        """
+        return self.sandbox_state.service_containers.get(site_name)
+
+
+class BrowserTaskMetadata(BaseModel):
+    """Metadata for browser-based tasks.
+
+    All browser tasks specify which site(s) they interact with.
+    Single-site tasks use a list with one element.
+    """
+
+    sites: list[SiteName]
+    """Sites this task interacts with (first site is primary for URL resolution)."""
+    start_url: str | None = None
+    """Override starting URL for this task."""
+
+
+class BrowserEnvironment(
+    NonSnapshottableAbstractEnvironment[BrowserEnvState, Page, BinaryContent, StrContentAttack],
+):
+    """Browser environment with fresh containers per task.
+
+    Follows the SWE-bench pattern:
+    - setup_batch(): Prepares all container images
+    - setup_task(): Creates fresh browser + site containers per task
+    - Complete isolation between tasks (no shared state)
+    - Supports true parallel execution
+
+    Uses tool replay (NonSnapshottable) since Page objects cannot be cloned.
+    """
+
+    name: str
+    all_injection_ids: list[InjectionVectorID]
+
+    _sandbox_manager: AbstractSandboxManager
+    _browser_container_spec: ContainerSpec
+    _site_container_specs: dict[str, ContainerSpec]
+    _site_urls: dict[str, str]
+
+    # Task setups prepared during batch context
+    _task_setups: list[SandboxTaskSetup]
+
+    def __init__(
+        self,
+        *,
+        name: str,
+        all_injection_ids: list[InjectionVectorID],
+        sandbox_manager: AbstractSandboxManager,
+        browser_container_spec: ContainerSpec,
+        site_container_specs: dict[str, ContainerSpec],
+        site_urls: dict[str, str] | None = None,
+    ) -> None:
+        """Initialize browser environment.
+
+        Args:
+            name: Name identifier for the environment
+            all_injection_ids: List of injection vector IDs supported
+            sandbox_manager: Sandbox manager for container lifecycle
+            browser_container_spec: Spec for browser container (Chromium with CDP)
+            site_container_specs: Specs for site containers (Gitea, Answer, etc.)
+            site_urls: Mapping of site name to base URL
+        """
+        self.name = name
+        self.all_injection_ids = all_injection_ids
+
+        self._sandbox_manager = sandbox_manager
+        self._browser_container_spec = browser_container_spec
+        self._site_container_specs = site_container_specs
+        self._site_urls = site_urls or {}
+
+        self._task_setups = []
+
+    async def reset_env_state(self, env_state: BrowserEnvState) -> BrowserEnvState:
+        """Reset env_state by recreating containers from scratch.
+
+        For browser environment, this:
+        1. Closes the browser connection
+        2. Destroys old containers in background (fire and forget)
+        3. Creates fresh containers from original images
+        4. Reconnects browser via CDP
+        5. Creates new page with request capture
+        6. Navigates to start URL
+
+        This ensures complete state reset including site container state
+        (databases, files, etc.) for proper tool replay.
+        """
+        # Close browser connection first
+        await env_state.browser.close()
+
+        # Destroy old containers in background (fire and forget - don't wait for cleanup)
+        old_sandbox_state = env_state.sandbox_state
+        _fire_and_forget(env_state.sandbox_manager.destroy_sandbox(old_sandbox_state))
+
+        # Create fresh containers from original images
+        new_sandbox_state = await env_state.sandbox_manager.create_sandbox(env_state.task_setup)
+
+        # Connect to browser via CDP
+        if not self._browser_container_spec.ports:
+            raise RuntimeError("Browser container spec must have ports defined")
+        cdp_port = next(iter(self._browser_container_spec.ports.keys()))
+        cdp_endpoint = f"http://localhost:{cdp_port}"
+
+        # Reconnect browser using existing Playwright instance
+        new_browser = await env_state.playwright.chromium.connect_over_cdp(cdp_endpoint)
+
+        # Create new page and set up request capture
+        new_page = await new_browser.new_page()
+        new_captured_requests: list[CapturedRequest] = []
+
+        async def capture_handler(route, request: Request) -> None:
+            new_captured_requests.append(
+                CapturedRequest(
+                    url=request.url,
+                    method=request.method,
+                    post_data=request.post_data,
+                )
+            )
+            await route.continue_()
+
+        await new_page.route("**/*", capture_handler)
+
+        # Navigate to start URL
+        await new_page.goto(env_state.start_url)
+
+        return BrowserEnvState(
+            page=new_page,
+            browser=new_browser,
+            playwright=env_state.playwright,
+            sandbox_state=new_sandbox_state,
+            sandbox_manager=env_state.sandbox_manager,
+            task_setup=env_state.task_setup,
+            start_url=env_state.start_url,
+            captured_requests=new_captured_requests,
+        )
+
+    async def get_injectable_ids(self, raw_output: Page) -> list[InjectionVectorID]:
+        """Detect which injection vectors are present in the page."""
+        page_content = await raw_output.content()
+        return [
+            vector_id for vector_id in self.all_injection_ids if f"{{{vector_id}}}" in page_content
+        ]
+
+    async def get_default_for_injection_vectors(
+        self, injection_vector_ids: Sequence[InjectionVectorID]
+    ) -> InjectionAttacksDict[StrContentAttack]:
+        """Returns default content for each vector (benign placeholder text)."""
+        return {vid: StrContentAttack(content="[No content]") for vid in injection_vector_ids}
+
+    async def render(
+        self,
+        raw_output: Page,
+        attacks: InjectionAttacksDict[StrContentAttack] | None = None,
+    ) -> BinaryContent:
+        """Render page with injections, return screenshot."""
+        # Get defaults for any detected vectors
+        vector_ids = await self.get_injectable_ids(raw_output)
+        defaults = await self.get_default_for_injection_vectors(vector_ids)
+
+        # Merge defaults with provided attacks (attacks override defaults)
+        effective_attacks = defaults | (attacks or {})
+
+        # Use JavaScript to replace all {vector_id} placeholders in text nodes
+        for vector_id, attack in effective_attacks.items():
+            # Escape special characters for JavaScript string
+            content = attack.content.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
+            await raw_output.evaluate(
+                f"""
+                const walker = document.createTreeWalker(
+                    document.body,
+                    NodeFilter.SHOW_TEXT,
+                    null,
+                    false
+                );
+                while (walker.nextNode()) {{
+                    if (walker.currentNode.textContent.includes('{{{vector_id}}}')) {{
+                        walker.currentNode.textContent =
+                            walker.currentNode.textContent.replace('{{{vector_id}}}', `{content}`);
+                    }}
+                }}
+                """
+            )
+
+        # Return screenshot
+        png_bytes = await raw_output.screenshot(full_page=False)
+        return BinaryContent(data=png_bytes, media_type="image/png")
+
+    def _extract_sites_from_single_task(
+        self,
+        task: BenignTask[BrowserEnvState] | MaliciousTask[BrowserEnvState],
+    ) -> list[SiteName]:
+        """Extract valid sites from a single task's metadata.
+
+        Returns sites in the order specified in metadata, filtered to valid SiteNames.
+        """
+        metadata = task.metadata
+        if not isinstance(metadata, BrowserTaskMetadata):
+            return []
+
+        valid_sites = get_args(SiteName)
+        return [site for site in metadata.sites if site in valid_sites]
+
+    def _get_sites_from_task(
+        self,
+        task: TaskCouple[BrowserEnvState]
+        | BenignTask[BrowserEnvState]
+        | MaliciousTask[BrowserEnvState],
+        *,
+        include_malicious: bool = True,
+    ) -> list[SiteName]:
+        """Extract sites required by a task.
+
+        Args:
+            task: The task or task couple to extract sites from
+            include_malicious: For TaskCouples, whether to include malicious task sites.
+                              Set to False to get only benign task sites (for URL resolution).
+
+        Returns:
+            Ordered list of sites. First element is the primary site (from benign task).
+            For TaskCouples with include_malicious=True, includes sites from both tasks.
+        """
+        # Collect tasks to check
+        tasks_to_check: list[BenignTask[BrowserEnvState] | MaliciousTask[BrowserEnvState]]
+        if isinstance(task, TaskCouple):
+            tasks_to_check = [task.benign]
+            if include_malicious:
+                tasks_to_check.append(task.malicious)
+        else:
+            tasks_to_check = [task]
+
+        # Extract sites preserving order (first task's sites come first)
+        seen: set[SiteName] = set()
+        result: list[SiteName] = []
+        for t in tasks_to_check:
+            for site in self._extract_sites_from_single_task(t):
+                if site not in seen:
+                    seen.add(site)
+                    result.append(site)
+
+        return result
+
+    def _create_task_setup(
+        self,
+        task: TaskCouple[BrowserEnvState]
+        | BenignTask[BrowserEnvState]
+        | MaliciousTask[BrowserEnvState],
+    ) -> SandboxTaskSetup:
+        """Create TaskSetup for a single task with browser + required site containers."""
+        task_id = task.id
+        sites = self._get_sites_from_task(task)
+
+        # Build service containers from required sites
+        service_containers: dict[str, ContainerSetup] = {}
+        for site in sites:
+            if site in self._site_container_specs:
+                service_containers[site] = ContainerSetup(
+                    name=site,
+                    spec=self._site_container_specs[site],
+                )
+
+        # Sanitize task ID for network name
+        safe_task_id = task_id.replace(":", "-").replace("/", "-")
+
+        return SandboxTaskSetup(
+            task_id=task_id,
+            agent_container=ContainerSetup(
+                name="browser",
+                spec=self._browser_container_spec,
+            ),
+            service_containers=service_containers,
+            network_config=NetworkConfig(name=f"browser-net-{safe_task_id}", internal=False),
+        )
+
+    @asynccontextmanager
+    async def create_batch_context(
+        self,
+        tasks: (
+            Sequence[TaskCouple[BrowserEnvState]]
+            | Sequence[BenignTask[BrowserEnvState]]
+            | Sequence[MaliciousTask[BrowserEnvState]]
+            | Sequence[BenignTask[BrowserEnvState] | MaliciousTask[BrowserEnvState]]
+        ),
+    ) -> AsyncIterator[Self]:
+        """Prepare container images for batch execution.
+
+        This context manager prepares all required images upfront via setup_batch().
+        Actual containers are created per-task in create_task_context().
+        """
+        # Create task setups for all tasks
+        self._task_setups = [self._create_task_setup(task) for task in tasks]
+
+        async with self._sandbox_manager.setup_batch(self._task_setups):
+            try:
+                yield self
+            finally:
+                self._task_setups = []
+
+    @asynccontextmanager
+    async def create_task_context(
+        self,
+        task: TaskCouple[BrowserEnvState]
+        | BenignTask[BrowserEnvState]
+        | MaliciousTask[BrowserEnvState],
+    ) -> AsyncIterator[BrowserEnvState]:
+        """Create per-task context with fresh containers.
+
+        Creates fresh browser + site containers for complete isolation.
+        Supports true parallel execution - each task gets its own containers.
+
+        Note: Uses async_playwright().start() instead of context manager so that
+        the Playwright instance can be passed to BrowserEnvState for use in
+        reset_env_state() to reconnect to recreated containers.
+        """
+        task_setup = self._create_task_setup(task)
+
+        async with self._sandbox_manager.setup_task(task_setup) as sandbox_state:
+            # Connect to browser via CDP
+            if not self._browser_container_spec.ports:
+                raise RuntimeError("Browser container spec must have ports defined")
+            # ports is dict[int, int] (host_port -> container_port), get first host port
+            cdp_port = next(iter(self._browser_container_spec.ports.keys()))
+            cdp_endpoint = f"http://localhost:{cdp_port}"
+
+            # Use .start() instead of context manager so we can pass pw to env_state
+            pw = await async_playwright().start()
+            try:
+                browser = await pw.chromium.connect_over_cdp(cdp_endpoint)
+
+                try:
+                    # Create page and set up request capture
+                    page = await browser.new_page()
+                    captured_requests: list[CapturedRequest] = []
+
+                    async def capture_handler(route, request: Request) -> None:
+                        captured_requests.append(
+                            CapturedRequest(
+                                url=request.url,
+                                method=request.method,
+                                post_data=request.post_data,
+                            )
+                        )
+                        await route.continue_()
+
+                    await page.route("**/*", capture_handler)
+
+                    # Determine starting URL (use primary site from benign task only)
+                    sites = self._get_sites_from_task(task, include_malicious=False)
+                    primary_site = sites[0] if sites else "gitea"
+                    start_url = self._site_urls.get(primary_site, "http://localhost:3000")
+
+                    actual_task = task.benign if isinstance(task, TaskCouple) else task
+                    metadata = actual_task.metadata
+                    if isinstance(metadata, BrowserTaskMetadata) and metadata.start_url:
+                        start_url = metadata.start_url
+
+                    await page.goto(start_url)
+
+                    yield BrowserEnvState(
+                        page=page,
+                        browser=browser,
+                        playwright=pw,
+                        sandbox_state=sandbox_state,
+                        sandbox_manager=self._sandbox_manager,
+                        task_setup=task_setup,
+                        start_url=start_url,
+                        captured_requests=captured_requests,
+                    )
+                finally:
+                    await browser.close()
+            finally:
+                await pw.stop()

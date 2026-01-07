@@ -31,7 +31,7 @@ from prompt_siren.sandbox_managers.sandbox_task_setup import (
     ContainerSetup,
     ContainerSpec,
     NetworkConfig,
-    TaskSetup,
+    SandboxTaskSetup,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,7 +49,7 @@ async def basic_sandbox_manager(
     test_image: str,
     docker_client_type: str,
     create_manager_config,
-) -> AsyncIterator[tuple[AbstractSandboxManager, TaskSetup]]:
+) -> AsyncIterator[tuple[AbstractSandboxManager, SandboxTaskSetup]]:
     """Create a sandbox manager with batch context for basic tests.
 
     Module-scoped to reuse across tests for performance.
@@ -61,7 +61,7 @@ async def basic_sandbox_manager(
 
     container_spec = ContainerSpec(image_spec=PullImageSpec(tag=test_image))
     agent_container = ContainerSetup(name="agent", spec=container_spec)
-    task_setup = TaskSetup(
+    task_setup = SandboxTaskSetup(
         task_id="basic-test",
         agent_container=agent_container,
         service_containers={},
@@ -74,7 +74,7 @@ async def basic_sandbox_manager(
 
 @pytest.fixture(scope="module")
 async def shared_container(
-    basic_sandbox_manager: tuple[AbstractSandboxManager, TaskSetup],
+    basic_sandbox_manager: tuple[AbstractSandboxManager, SandboxTaskSetup],
 ) -> AsyncIterator[tuple[AbstractSandboxManager, SandboxState]]:
     """Create a shared container for read-only tests.
 
@@ -264,7 +264,7 @@ class TestMultiContainerNetworking:
         agent_container = ContainerSetup(name="agent", spec=agent_spec)
         service_container = ContainerSetup(name="service", spec=service_spec)
 
-        task_setup = TaskSetup(
+        task_setup = SandboxTaskSetup(
             task_id="dns-test",
             agent_container=agent_container,
             service_containers={"service": service_container},
@@ -326,7 +326,7 @@ class TestMultiContainerNetworking:
         agent_container = ContainerSetup(name="agent", spec=container_spec)
         service_container = ContainerSetup(name="service", spec=container_spec)
 
-        task_setup = TaskSetup(
+        task_setup = SandboxTaskSetup(
             task_id="internal-network-test",
             agent_container=agent_container,
             service_containers={"service": service_container},
@@ -367,7 +367,7 @@ class TestContainerCloning:
 
         container_spec = ContainerSpec(image_spec=PullImageSpec(tag=test_image))
         agent_container = ContainerSetup(name="agent", spec=container_spec)
-        task_setup = TaskSetup(
+        task_setup = SandboxTaskSetup(
             task_id="clone-test",
             agent_container=agent_container,
             service_containers={},
@@ -435,7 +435,7 @@ class TestContainerCloning:
             command=custom_command,
         )
         agent_container = ContainerSetup(name="agent", spec=container_spec)
-        task_setup = TaskSetup(
+        task_setup = SandboxTaskSetup(
             task_id="clone-custom-cmd-test",
             agent_container=agent_container,
             service_containers={},
@@ -529,7 +529,7 @@ class TestContainerCloning:
         agent_container = ContainerSetup(name="agent", spec=container_spec)
         service_container = ContainerSetup(name="service", spec=container_spec)
 
-        task_setup = TaskSetup(
+        task_setup = SandboxTaskSetup(
             task_id="clone-network-test",
             agent_container=agent_container,
             service_containers={"service": service_container},
@@ -575,7 +575,7 @@ class TestContainerCloning:
 
         container_spec = ContainerSpec(image_spec=PullImageSpec(tag=test_image))
         agent_container = ContainerSetup(name="agent", spec=container_spec)
-        task_setup = TaskSetup(
+        task_setup = SandboxTaskSetup(
             task_id="clone-cleanup-test",
             agent_container=agent_container,
             service_containers={},
@@ -642,7 +642,7 @@ class TestConcurrentExecution:
         agent_container = ContainerSetup(name="agent", spec=container_spec)
 
         # Same task_id for all
-        task_setup = TaskSetup(
+        task_setup = SandboxTaskSetup(
             task_id="parallel-test",
             agent_container=agent_container,
             service_containers={},
@@ -689,7 +689,7 @@ class TestConcurrentExecution:
 
         container_spec = ContainerSpec(image_spec=PullImageSpec(tag=test_image))
         agent_container = ContainerSetup(name="agent", spec=container_spec)
-        task_setup = TaskSetup(
+        task_setup = SandboxTaskSetup(
             task_id="concurrent-clone-test",
             agent_container=agent_container,
             service_containers={},
@@ -753,7 +753,7 @@ class TestImageBuilding:
 
         container_spec = ContainerSpec(image_spec=build_spec)
         agent_container = ContainerSetup(name="agent", spec=container_spec)
-        task_setup = TaskSetup(
+        task_setup = SandboxTaskSetup(
             task_id="build-test",
             agent_container=agent_container,
             service_containers={},
@@ -807,7 +807,7 @@ class TestImageBuilding:
 
         container_spec = ContainerSpec(image_spec=build_spec)
         agent_container = ContainerSetup(name="agent", spec=container_spec)
-        task_setup = TaskSetup(
+        task_setup = SandboxTaskSetup(
             task_id="build-args-test",
             agent_container=agent_container,
             service_containers={},
@@ -862,13 +862,13 @@ class TestImageBuilding:
         build_container = ContainerSetup(name="agent", spec=ContainerSpec(image_spec=build_spec))
 
         task_setups = [
-            TaskSetup(
+            SandboxTaskSetup(
                 task_id="pulled-task",
                 agent_container=pull_container,
                 service_containers={},
                 network_config=None,
             ),
-            TaskSetup(
+            SandboxTaskSetup(
                 task_id="built-task",
                 agent_container=build_container,
                 service_containers={},
@@ -955,7 +955,7 @@ class TestMultiStageBuild:
 
         container_spec = ContainerSpec(image_spec=multi_stage_spec)
         agent_container = ContainerSetup(name="agent", spec=container_spec)
-        task_setup = TaskSetup(
+        task_setup = SandboxTaskSetup(
             task_id="multistage-test",
             agent_container=agent_container,
             service_containers={},
@@ -1040,7 +1040,7 @@ class TestMultiStageBuild:
         agent_container = ContainerSetup(name="agent", spec=container_spec)
 
         # First build - all stages should be built
-        task_setup1 = TaskSetup(
+        task_setup1 = SandboxTaskSetup(
             task_id="cache-test-1",
             agent_container=agent_container,
             service_containers={},
@@ -1061,7 +1061,7 @@ class TestMultiStageBuild:
             await docker_client.delete_image(instance_tag, force=True)
 
         # Second build - base and env should be cached
-        task_setup2 = TaskSetup(
+        task_setup2 = SandboxTaskSetup(
             task_id="cache-test-2",
             agent_container=agent_container,
             service_containers={},
@@ -1162,7 +1162,7 @@ class TestMultiStageBuild:
         )
 
         task_setups = [
-            TaskSetup(
+            SandboxTaskSetup(
                 task_id="shared-test-1",
                 agent_container=ContainerSetup(
                     name="agent",
@@ -1171,7 +1171,7 @@ class TestMultiStageBuild:
                 service_containers={},
                 network_config=None,
             ),
-            TaskSetup(
+            SandboxTaskSetup(
                 task_id="shared-test-2",
                 agent_container=ContainerSetup(
                     name="agent",
@@ -1234,7 +1234,7 @@ class TestStdinHandling:
 
         container_spec = ContainerSpec(image_spec=PullImageSpec(tag=test_image))
         agent_container = ContainerSetup(name="agent", spec=container_spec)
-        task_setup = TaskSetup(
+        task_setup = SandboxTaskSetup(
             task_id="stdin-string-test",
             agent_container=agent_container,
             service_containers={},
@@ -1269,7 +1269,7 @@ class TestStdinHandling:
 
         container_spec = ContainerSpec(image_spec=PullImageSpec(tag=test_image))
         agent_container = ContainerSetup(name="agent", spec=container_spec)
-        task_setup = TaskSetup(
+        task_setup = SandboxTaskSetup(
             task_id="stdin-bytes-test",
             agent_container=agent_container,
             service_containers={},
@@ -1305,7 +1305,7 @@ class TestStdinHandling:
 
         container_spec = ContainerSpec(image_spec=PullImageSpec(tag=test_image))
         agent_container = ContainerSetup(name="agent", spec=container_spec)
-        task_setup = TaskSetup(
+        task_setup = SandboxTaskSetup(
             task_id="stdin-special-chars-test",
             agent_container=agent_container,
             service_containers={},
@@ -1345,7 +1345,7 @@ class TestStdinHandling:
 
         container_spec = ContainerSpec(image_spec=PullImageSpec(tag=test_image))
         agent_container = ContainerSetup(name="agent", spec=container_spec)
-        task_setup = TaskSetup(
+        task_setup = SandboxTaskSetup(
             task_id="stdin-multiline-test",
             agent_container=agent_container,
             service_containers={},
@@ -1384,7 +1384,7 @@ class TestStdinHandling:
 
         container_spec = ContainerSpec(image_spec=PullImageSpec(tag=test_image))
         agent_container = ContainerSetup(name="agent", spec=container_spec)
-        task_setup = TaskSetup(
+        task_setup = SandboxTaskSetup(
             task_id="stdin-piped-test",
             agent_container=agent_container,
             service_containers={},
@@ -1421,7 +1421,7 @@ class TestStdinHandling:
 
         container_spec = ContainerSpec(image_spec=PullImageSpec(tag=test_image))
         agent_container = ContainerSetup(name="agent", spec=container_spec)
-        task_setup = TaskSetup(
+        task_setup = SandboxTaskSetup(
             task_id="stdin-empty-test",
             agent_container=agent_container,
             service_containers={},
@@ -1455,7 +1455,7 @@ class TestStdinHandling:
 
         container_spec = ContainerSpec(image_spec=PullImageSpec(tag=test_image))
         agent_container = ContainerSetup(name="agent", spec=container_spec)
-        task_setup = TaskSetup(
+        task_setup = SandboxTaskSetup(
             task_id="stdin-large-test",
             agent_container=agent_container,
             service_containers={},
@@ -1491,7 +1491,7 @@ class TestStdinHandling:
 
         container_spec = ContainerSpec(image_spec=PullImageSpec(tag=test_image))
         agent_container = ContainerSetup(name="agent", spec=container_spec)
-        task_setup = TaskSetup(
+        task_setup = SandboxTaskSetup(
             task_id="stdin-env-test",
             agent_container=agent_container,
             service_containers={},
