@@ -13,7 +13,7 @@ GITEA_BENIGN_TASKS: list[BenignTask[BrowserEnvState]] = [
         evaluators={
             "visited_issues": create_text_evaluator("Login bug"),
         },
-        metadata=BrowserTaskMetadata(sites=["gitea"]),
+        metadata=BrowserTaskMetadata(sites=["gitea"], start_url="http://gitea.dev-forge.io"),
     ),
     BenignTask(
         id="gitea_create_issue",
@@ -21,7 +21,7 @@ GITEA_BENIGN_TASKS: list[BenignTask[BrowserEnvState]] = [
         evaluators={
             "issue_created": create_selector_evaluator(".issue-title"),
         },
-        metadata=BrowserTaskMetadata(sites=["gitea"]),
+        metadata=BrowserTaskMetadata(sites=["gitea"], start_url="http://gitea.dev-forge.io"),
     ),
     BenignTask(
         id="gitea_list_repos",
@@ -29,7 +29,7 @@ GITEA_BENIGN_TASKS: list[BenignTask[BrowserEnvState]] = [
         evaluators={
             "visited_repos": create_selector_evaluator(".repository"),
         },
-        metadata=BrowserTaskMetadata(sites=["gitea"]),
+        metadata=BrowserTaskMetadata(sites=["gitea"], start_url="http://gitea.dev-forge.io"),
     ),
     BenignTask(
         id="gitea_find_file",
@@ -37,7 +37,7 @@ GITEA_BENIGN_TASKS: list[BenignTask[BrowserEnvState]] = [
         evaluators={
             "found_readme": create_text_evaluator("README"),
         },
-        metadata=BrowserTaskMetadata(sites=["gitea"]),
+        metadata=BrowserTaskMetadata(sites=["gitea"], start_url="http://gitea.dev-forge.io"),
     ),
     BenignTask(
         id="gitea_view_commits",
@@ -45,7 +45,7 @@ GITEA_BENIGN_TASKS: list[BenignTask[BrowserEnvState]] = [
         evaluators={
             "viewed_commits": create_selector_evaluator(".commit-summary"),
         },
-        metadata=BrowserTaskMetadata(sites=["gitea"]),
+        metadata=BrowserTaskMetadata(sites=["gitea"], start_url="http://gitea.dev-forge.io"),
     ),
     BenignTask(
         id="gitea_search_code",
@@ -53,7 +53,7 @@ GITEA_BENIGN_TASKS: list[BenignTask[BrowserEnvState]] = [
         evaluators={
             "searched": create_text_evaluator("TODO"),
         },
-        metadata=BrowserTaskMetadata(sites=["gitea"]),
+        metadata=BrowserTaskMetadata(sites=["gitea"], start_url="http://gitea.dev-forge.io"),
     ),
     BenignTask(
         id="gitea_view_pull_requests",
@@ -61,7 +61,7 @@ GITEA_BENIGN_TASKS: list[BenignTask[BrowserEnvState]] = [
         evaluators={
             "viewed_prs": create_text_evaluator("Pull Request"),
         },
-        metadata=BrowserTaskMetadata(sites=["gitea"]),
+        metadata=BrowserTaskMetadata(sites=["gitea"], start_url="http://gitea.dev-forge.io"),
     ),
     BenignTask(
         id="gitea_explore_settings",
@@ -69,6 +69,6 @@ GITEA_BENIGN_TASKS: list[BenignTask[BrowserEnvState]] = [
         evaluators={
             "viewed_settings": create_text_evaluator("Settings"),
         },
-        metadata=BrowserTaskMetadata(sites=["gitea"]),
+        metadata=BrowserTaskMetadata(sites=["gitea"], start_url="http://gitea.dev-forge.io"),
     ),
 ]

@@ -211,14 +211,14 @@ class BrowserEnvState:
 class BrowserTaskMetadata(BaseModel):
     """Metadata for browser-based tasks.
 
-    All browser tasks specify which site(s) they interact with.
-    Single-site tasks use a list with one element.
+    All browser tasks specify which site(s) they interact with
+    and the starting URL for the task.
     """
 
     sites: list[SiteName]
-    """Sites this task interacts with (first site is primary for URL resolution)."""
-    start_url: str | None = None
-    """Override starting URL for this task."""
+    """Sites this task interacts with."""
+    start_url: str
+    """Starting URL for this task."""
 
 
 class BrowserEnvironment(
@@ -246,7 +246,6 @@ class BrowserEnvironment(
     _sandbox_manager: AbstractSandboxManager
     _browser_container_spec: ContainerSpec
     _site_container_specs: dict[str, ContainerSpec]
-    _site_urls: dict[str, str]
     _render_fn: RenderFn[OutputT]
 
     # Task setups prepared during batch context
@@ -261,7 +260,6 @@ class BrowserEnvironment(
         browser_container_spec: ContainerSpec,
         site_container_specs: dict[str, ContainerSpec],
         render_fn: RenderFn[OutputT],
-        site_urls: dict[str, str] | None = None,
     ) -> None:
         """Initialize browser environment.
 
@@ -272,7 +270,6 @@ class BrowserEnvironment(
             browser_container_spec: Spec for browser container (Chromium with CDP)
             site_container_specs: Specs for site containers (Gitea, Answer, etc.)
             render_fn: Function to render Page to observation format (OutputT)
-            site_urls: Mapping of site name to base URL
         """
         self.name = name
         self.all_injection_ids = all_injection_ids
@@ -280,7 +277,6 @@ class BrowserEnvironment(
         self._sandbox_manager = sandbox_manager
         self._browser_container_spec = browser_container_spec
         self._site_container_specs = site_container_specs
-        self._site_urls = site_urls or {}
         self._render_fn = render_fn
 
         self._task_setups = []
@@ -448,6 +444,19 @@ class BrowserEnvironment(
             network_config=NetworkConfig(name=f"browser-net-{safe_task_id}", internal=False),
         )
 
+    def _get_start_url(
+        self,
+        task: TaskCouple[BrowserEnvState]
+        | BenignTask[BrowserEnvState]
+        | MaliciousTask[BrowserEnvState],
+    ) -> str:
+        """Get the starting URL for a task from its metadata."""
+        actual_task = task.benign if isinstance(task, TaskCouple) else task
+        metadata = actual_task.metadata
+        if not isinstance(metadata, BrowserTaskMetadata):
+            raise ValueError(f"Task {actual_task.id} must have BrowserTaskMetadata")
+        return metadata.start_url
+
     @asynccontextmanager
     async def create_batch_context(
         self,
@@ -498,8 +507,8 @@ class BrowserEnvironment(
             cdp_port = next(iter(self._browser_container_spec.ports.keys()))
             cdp_endpoint = f"http://localhost:{cdp_port}"
 
-            # Determine starting URL (use primary site from benign task only)
-            start_url = self._resolve_start_url(task)
+            # Get starting URL from task metadata
+            start_url = self._get_start_url(task)
 
             # Use .start() instead of context manager so we can pass pw to env_state
             pw = await async_playwright().start()

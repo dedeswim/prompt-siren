@@ -10,13 +10,12 @@ from __future__ import annotations
 from pydantic_ai.tools import Tool
 from pydantic_ai.toolsets import FunctionToolset
 
-from ...environments.browser_env import BrowserEnvState
+from ...environments.browser_env import apply_injections, BrowserEnvState
 from ...sandbox_managers.abstract import AbstractSandboxManager
 from ...types import InjectionAttacksDict, StrContentAttack
 from .base import (
     ALL_BENIGN_TASKS,
     ALL_MALICIOUS_TASKS,
-    apply_injections,
     BaseBrowserDataset,
     create_browser_environment,
 )

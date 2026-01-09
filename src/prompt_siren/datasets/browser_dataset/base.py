@@ -17,7 +17,6 @@ from pydantic_ai.toolsets import FunctionToolset
 
 from ...environments.abstract import AbstractEnvironment
 from ...environments.browser_env import (
-    apply_injections,
     BrowserEnvironment,
     BrowserEnvState,
     BrowserTaskMetadata,
@@ -132,18 +131,11 @@ def create_browser_environment(
     # Use pre-computed sites from module load
     sites = SITES_WITH_TASKS
 
-    # Build site URL map
-    site_urls: dict[str, str] = {}
-    for site_name in sites:
-        site_config = config.get_site_config(site_name)
-        site_urls[site_name] = site_config.get_url()
-
     return BrowserEnvironment(
         name=name,
         all_injection_ids=get_vectors_for_sites(list(sites)),
         sandbox_manager=sandbox_manager,
         browser_container_spec=config.browser.to_container_spec(),
         site_container_specs=config.get_all_site_container_specs(),
-        site_urls=site_urls,
         render_fn=render_fn,
     )

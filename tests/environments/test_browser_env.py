@@ -72,10 +72,6 @@ def browser_env(
         browser_container_spec=browser_container_spec,
         site_container_specs=site_container_specs,
         render_fn=_mock_render_fn,
-        site_urls={
-            "gitea": "http://gitea.dev-forge.io",
-            "answer": "http://answers.dev-community.io",
-        },
     )
 
 
@@ -140,7 +136,7 @@ class TestGetSitesFromTask:
             id="test_task",
             prompt="Do something",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["gitea"]),
+            metadata=BrowserTaskMetadata(sites=["gitea"], start_url="http://gitea.dev-forge.io"),
         )
 
         result = browser_env._get_sites_from_task(task)
@@ -153,7 +149,7 @@ class TestGetSitesFromTask:
             id="cross_site_task",
             prompt="Do something across sites",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["gitea", "answer"]),
+            metadata=BrowserTaskMetadata(sites=["gitea", "answer"], start_url="http://gitea.dev-forge.io"),
         )
 
         result = browser_env._get_sites_from_task(task)
@@ -167,13 +163,13 @@ class TestGetSitesFromTask:
             id="benign_task",
             prompt="Do something",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["gitea"]),
+            metadata=BrowserTaskMetadata(sites=["gitea"], start_url="http://gitea.dev-forge.io"),
         )
         malicious = MaliciousTask(
             id="malicious_task",
             goal="Attack",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["answer"]),
+            metadata=BrowserTaskMetadata(sites=["answer"], start_url="http://answers.dev-community.io"),
         )
         couple = TaskCouple(benign=benign, malicious=malicious)
 
@@ -188,13 +184,13 @@ class TestGetSitesFromTask:
             id="benign_task",
             prompt="Do something",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["gitea"]),
+            metadata=BrowserTaskMetadata(sites=["gitea"], start_url="http://gitea.dev-forge.io"),
         )
         malicious = MaliciousTask(
             id="malicious_task",
             goal="Attack across sites",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["answer", "wikijs"]),
+            metadata=BrowserTaskMetadata(sites=["answer", "wikijs"], start_url="http://answers.dev-community.io"),
         )
         couple = TaskCouple(benign=benign, malicious=malicious)
 
@@ -209,13 +205,13 @@ class TestGetSitesFromTask:
             id="benign_task",
             prompt="Do something",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["gitea"]),
+            metadata=BrowserTaskMetadata(sites=["gitea"], start_url="http://gitea.dev-forge.io"),
         )
         malicious = MaliciousTask(
             id="malicious_task",
             goal="Attack",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["gitea"]),
+            metadata=BrowserTaskMetadata(sites=["gitea"], start_url="http://gitea.dev-forge.io"),
         )
         couple = TaskCouple(benign=benign, malicious=malicious)
 
@@ -232,13 +228,13 @@ class TestGetSitesFromTask:
             id="benign_task",
             prompt="Do something",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["gitea"]),
+            metadata=BrowserTaskMetadata(sites=["gitea"], start_url="http://gitea.dev-forge.io"),
         )
         malicious = MaliciousTask(
             id="malicious_task",
             goal="Attack",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["answer"]),
+            metadata=BrowserTaskMetadata(sites=["answer"], start_url="http://answers.dev-community.io"),
         )
         couple = TaskCouple(benign=benign, malicious=malicious)
 
@@ -253,7 +249,7 @@ class TestGetSitesFromTask:
             id="cross_site_task",
             prompt="Do something across sites",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["answer", "gitea"]),
+            metadata=BrowserTaskMetadata(sites=["answer", "gitea"], start_url="http://answers.dev-community.io"),
         )
 
         result = browser_env._get_sites_from_task(task)
@@ -271,7 +267,7 @@ class TestCreateTaskSetup:
             id="gitea_find_issue",
             prompt="Find the issue",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["gitea"]),
+            metadata=BrowserTaskMetadata(sites=["gitea"], start_url="http://gitea.dev-forge.io"),
         )
 
         setup = browser_env._create_task_setup(task)
@@ -289,7 +285,7 @@ class TestCreateTaskSetup:
             id="cross_site_task",
             prompt="Do something across sites",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["gitea", "answer"]),
+            metadata=BrowserTaskMetadata(sites=["gitea", "answer"], start_url="http://gitea.dev-forge.io"),
         )
 
         setup = browser_env._create_task_setup(task)
@@ -305,13 +301,13 @@ class TestCreateTaskSetup:
             id="benign_task",
             prompt="Do something",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["gitea"]),
+            metadata=BrowserTaskMetadata(sites=["gitea"], start_url="http://gitea.dev-forge.io"),
         )
         malicious = MaliciousTask(
             id="malicious_task",
             goal="Attack",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["answer"]),
+            metadata=BrowserTaskMetadata(sites=["answer"], start_url="http://answers.dev-community.io"),
         )
         couple = TaskCouple(benign=benign, malicious=malicious)
 
@@ -329,13 +325,13 @@ class TestCreateTaskSetup:
             id="benign/task",
             prompt="Do something",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["gitea"]),
+            metadata=BrowserTaskMetadata(sites=["gitea"], start_url="http://gitea.dev-forge.io"),
         )
         malicious = MaliciousTask(
             id="malicious:task",
             goal="Attack",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["gitea"]),
+            metadata=BrowserTaskMetadata(sites=["gitea"], start_url="http://gitea.dev-forge.io"),
         )
         couple = TaskCouple(benign=benign, malicious=malicious)
 
@@ -354,7 +350,7 @@ class TestCreateTaskSetup:
             id="wiki_task",
             prompt="Do something on wiki",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["gitea", "wikijs"]),
+            metadata=BrowserTaskMetadata(sites=["gitea", "wikijs"], start_url="http://gitea.dev-forge.io"),
         )
 
         setup = browser_env._create_task_setup(task)

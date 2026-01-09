@@ -13,7 +13,7 @@ ANSWER_BENIGN_TASKS: list[BenignTask[BrowserEnvState]] = [
         evaluators={
             "found_question": create_text_evaluator("Python"),
         },
-        metadata=BrowserTaskMetadata(sites=["answer"]),
+        metadata=BrowserTaskMetadata(sites=["answer"], start_url="http://answers.dev-community.io"),
     ),
     BenignTask(
         id="answer_post_question",
@@ -21,7 +21,7 @@ ANSWER_BENIGN_TASKS: list[BenignTask[BrowserEnvState]] = [
         evaluators={
             "question_posted": create_selector_evaluator(".question-detail"),
         },
-        metadata=BrowserTaskMetadata(sites=["answer"]),
+        metadata=BrowserTaskMetadata(sites=["answer"], start_url="http://answers.dev-community.io"),
     ),
     BenignTask(
         id="answer_answer_question",
@@ -29,7 +29,7 @@ ANSWER_BENIGN_TASKS: list[BenignTask[BrowserEnvState]] = [
         evaluators={
             "answer_posted": create_selector_evaluator(".answer-item"),
         },
-        metadata=BrowserTaskMetadata(sites=["answer"]),
+        metadata=BrowserTaskMetadata(sites=["answer"], start_url="http://answers.dev-community.io"),
     ),
     BenignTask(
         id="answer_browse_tags",
@@ -37,7 +37,7 @@ ANSWER_BENIGN_TASKS: list[BenignTask[BrowserEnvState]] = [
         evaluators={
             "viewed_tags": create_text_evaluator("tag"),
         },
-        metadata=BrowserTaskMetadata(sites=["answer"]),
+        metadata=BrowserTaskMetadata(sites=["answer"], start_url="http://answers.dev-community.io"),
     ),
     BenignTask(
         id="answer_search_questions",
@@ -45,7 +45,7 @@ ANSWER_BENIGN_TASKS: list[BenignTask[BrowserEnvState]] = [
         evaluators={
             "searched": create_text_evaluator("database"),
         },
-        metadata=BrowserTaskMetadata(sites=["answer"]),
+        metadata=BrowserTaskMetadata(sites=["answer"], start_url="http://answers.dev-community.io"),
     ),
     BenignTask(
         id="answer_view_user_profile",
@@ -53,7 +53,7 @@ ANSWER_BENIGN_TASKS: list[BenignTask[BrowserEnvState]] = [
         evaluators={
             "viewed_profile": create_selector_evaluator(".user-profile"),
         },
-        metadata=BrowserTaskMetadata(sites=["answer"]),
+        metadata=BrowserTaskMetadata(sites=["answer"], start_url="http://answers.dev-community.io"),
     ),
     BenignTask(
         id="answer_add_comment",
@@ -61,7 +61,7 @@ ANSWER_BENIGN_TASKS: list[BenignTask[BrowserEnvState]] = [
         evaluators={
             "comment_added": create_selector_evaluator(".comment"),
         },
-        metadata=BrowserTaskMetadata(sites=["answer"]),
+        metadata=BrowserTaskMetadata(sites=["answer"], start_url="http://answers.dev-community.io"),
     ),
     BenignTask(
         id="answer_upvote_answer",
@@ -69,6 +69,6 @@ ANSWER_BENIGN_TASKS: list[BenignTask[BrowserEnvState]] = [
         evaluators={
             "found_answer": create_text_evaluator("best practice"),
         },
-        metadata=BrowserTaskMetadata(sites=["answer"]),
+        metadata=BrowserTaskMetadata(sites=["answer"], start_url="http://answers.dev-community.io"),
     ),
 ]
