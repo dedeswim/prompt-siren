@@ -1,6 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 """Configuration for browser-based dataset."""
 
+from importlib.resources import files
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -8,7 +9,7 @@ from pydantic import BaseModel, Discriminator, Field, Tag
 from typing_extensions import assert_never
 
 from ...environments.browser_env import SiteName
-from ...sandbox_managers.image_spec import PullImageSpec
+from ...sandbox_managers.image_spec import BuildImageSpec, ImageSpec, PullImageSpec
 from ...sandbox_managers.sandbox_task_setup import ContainerSpec
 
 # Default browser container image (Headless Chrome with CDP support)
@@ -19,11 +20,40 @@ DEFAULT_BROWSER_IMAGE = "chromedp/headless-shell:latest"
 CDP_PORT = 9222
 
 
+def _get_docker_subdir(subdir: str) -> Path | None:
+    """Get the path to a subdirectory within the docker build contexts.
+
+    Uses importlib.resources to locate package resources. For Docker builds,
+    we need a real filesystem path, so this only works when the package is
+    installed as a directory (not in a zip file).
+
+    Args:
+        subdir: Subdirectory name (e.g., "gitea", "answer")
+
+    Returns:
+        Path to the subdirectory if it exists and contains a Dockerfile, None otherwise.
+    """
+    try:
+        # Get the Traversable for the docker subdirectory
+        docker_traversable = files("prompt_siren.datasets.browser_dataset").joinpath("docker").joinpath(subdir)
+
+        # Convert to a real path - works for directory-based installations
+        # For zip-based installations, this will be a path inside the zip
+        # which won't work for Docker builds (but that's an edge case)
+        real_path = Path(str(docker_traversable))
+
+        if real_path.is_dir() and (real_path / "Dockerfile").exists():
+            return real_path
+    except (TypeError, FileNotFoundError, OSError):
+        pass
+    return None
+
+
 class BaseSiteConfig(BaseModel):
     """Common configuration for all sites."""
 
     container_image: str
-    """Docker image for the site container."""
+    """Docker image for the site container (used as base or for pulling)."""
     hostname: str
     """Realistic hostname for the site (e.g., 'gitea.dev-forge.io').
 
@@ -34,6 +64,12 @@ class BaseSiteConfig(BaseModel):
     """Port the site runs on inside the container."""
     base_url: str | None = None
     """Override base URL for the site. If not set, defaults to http://{hostname}:{port}."""
+    build_context: Path | None = None
+    """Path to Docker build context with pre-seeded database.
+
+    If set, uses BuildImageSpec to build a custom image with pre-populated data.
+    If None, uses PullImageSpec to pull the container_image directly.
+    """
 
     def get_url(self) -> str:
         """Get the effective URL for this site.
@@ -47,10 +83,45 @@ class BaseSiteConfig(BaseModel):
             return f"http://{self.hostname}"
         return f"http://{self.hostname}:{self.port}"
 
-    def to_container_spec(self) -> ContainerSpec:
-        """Convert site config to ContainerSpec for sandbox manager."""
+    def _get_image_spec(self, site_name: str | None = None) -> ImageSpec:
+        """Get the appropriate image spec based on configuration.
+
+        If build_context is explicitly set, uses that. Otherwise, auto-detects
+        a pre-seeded build context based on site_name if provided.
+
+        Args:
+            site_name: Optional site name for auto-detecting build context
+                       (e.g., "gitea", "answer")
+
+        Returns:
+            BuildImageSpec if a valid build context is found, otherwise PullImageSpec.
+        """
+        # Check explicit build_context first
+        build_path = self.build_context
+
+        # Auto-detect build context based on site name if not explicitly set
+        if build_path is None and site_name is not None:
+            build_path = _get_docker_subdir(site_name)
+
+        if build_path is not None and build_path.exists():
+            # Use pre-seeded image built from context
+            # Tag based on hostname to make it unique
+            safe_hostname = self.hostname.replace(".", "-")
+            return BuildImageSpec(
+                context_path=str(build_path),
+                tag=f"prompt-siren/{safe_hostname}:latest",
+            )
+        # Fall back to pulling the base image
+        return PullImageSpec(tag=self.container_image)
+
+    def to_container_spec(self, site_name: str | None = None) -> ContainerSpec:
+        """Convert site config to ContainerSpec for sandbox manager.
+
+        Args:
+            site_name: Optional site name for auto-detecting pre-seeded build context
+        """
         return ContainerSpec(
-            image_spec=PullImageSpec(tag=self.container_image),
+            image_spec=self._get_image_spec(site_name),
             hostname=self.hostname,
             ports={self.port: self.port},
         )
@@ -124,6 +195,7 @@ class BrowserDatasetConfig(BaseModel):
     )
 
     # SQLite sites (lightweight, easy checkpointing)
+    # Pre-seeded build contexts are auto-detected from docker/{site_name}/ directories
     gitea: SqliteSiteConfig = Field(
         default=SqliteSiteConfig(
             container_image="gitea/gitea:latest",
@@ -189,12 +261,15 @@ class BrowserDatasetConfig(BaseModel):
     def get_all_site_container_specs(self) -> dict[str, ContainerSpec]:
         """Get container specs for all sites.
 
+        Auto-detects pre-seeded build contexts from docker/{site_name}/ directories.
+        Falls back to pulling base images if no pre-seeded context is found.
+
         Returns:
             Dictionary mapping site names to their ContainerSpecs
         """
         return {
-            "gitea": self.gitea.to_container_spec(),
-            "answer": self.answer.to_container_spec(),
-            "wikijs": self.wikijs.to_container_spec(),
-            "classifieds": self.classifieds.to_container_spec(),
+            "gitea": self.gitea.to_container_spec("gitea"),
+            "answer": self.answer.to_container_spec("answer"),
+            "wikijs": self.wikijs.to_container_spec("wikijs"),
+            "classifieds": self.classifieds.to_container_spec("classifieds"),
         }

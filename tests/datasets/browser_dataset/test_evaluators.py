@@ -61,7 +61,7 @@ def create_mock_task_result(
     return TaskResult(
         run_context=mock_run_context,
         pre_env_state=None,
-        task=MagicMock(),
+        task=MagicMock(),  # type: ignore[arg-type]
     )
 
 
@@ -142,7 +142,7 @@ class TestSelectorEvaluator:
 
         task_result = create_mock_task_result()
         # Mock element found
-        task_result.run_context.deps.page.query_selector = AsyncMock(return_value=MagicMock())
+        task_result.run_context.deps.page.query_selector = AsyncMock(return_value=MagicMock())  # type: ignore[method-assign]
 
         score = await evaluator(task_result)
         assert score == 1.0
@@ -153,7 +153,7 @@ class TestSelectorEvaluator:
 
         task_result = create_mock_task_result()
         # Mock element not found
-        task_result.run_context.deps.page.query_selector = AsyncMock(return_value=None)
+        task_result.run_context.deps.page.query_selector = AsyncMock(return_value=None)  # type: ignore[method-assign]
 
         score = await evaluator(task_result)
         assert score == 0.0

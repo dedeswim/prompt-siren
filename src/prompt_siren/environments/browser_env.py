@@ -18,13 +18,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator, Coroutine, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Any, get_args, Literal, TypedDict
+from typing import Any, Generic, get_args, Literal, TypedDict, TypeVar
 
 from pydantic import BaseModel
-from pydantic_ai.messages import BinaryContent
 from typing_extensions import Self
 
 try:
@@ -48,6 +47,12 @@ from ..types import InjectionAttacksDict, InjectionVectorID, StrContentAttack
 from .abstract import NonSnapshottableAbstractEnvironment
 
 logger = logging.getLogger(__name__)
+
+# Output type varies by observation modality
+OutputT = TypeVar("OutputT")
+
+# Type alias for render function
+RenderFn = Callable[[Page, "InjectionAttacksDict[StrContentAttack]"], Awaitable[OutputT]]
 
 # Valid site names for browser environment
 SiteName = Literal["gitea", "answer", "wikijs", "classifieds"]
@@ -76,6 +81,75 @@ def _fire_and_forget(coro: Coroutine[Any, Any, Any]) -> None:
             logger.warning(f"Background task failed: {exc}", exc_info=exc)
 
     task.add_done_callback(_on_done)
+
+
+async def _setup_page_with_capture(
+    browser: Browser,
+    start_url: str,
+) -> tuple[Page, list[CapturedRequest]]:
+    """Create a new page with request capture and navigate to start URL.
+
+    Args:
+        browser: Browser instance to create page from
+        start_url: URL to navigate to after page creation
+
+    Returns:
+        Tuple of (page, captured_requests list)
+    """
+    page = await browser.new_page()
+    captured_requests: list[CapturedRequest] = []
+
+    async def capture_handler(route, request: Request) -> None:
+        captured_requests.append(
+            CapturedRequest(
+                url=request.url,
+                method=request.method,
+                post_data=request.post_data,
+            )
+        )
+        await route.continue_()
+
+    await page.route("**/*", capture_handler)
+    await page.goto(start_url)
+
+    return page, captured_requests
+
+
+async def apply_injections(
+    page: Page,
+    attacks: InjectionAttacksDict[StrContentAttack] | None,
+) -> None:
+    """Apply injection attacks to the page DOM.
+
+    This modifies DOM text nodes to replace placeholders with attack content.
+    Used by dataset render functions to inject attack payloads before rendering.
+
+    Args:
+        page: Playwright page to modify
+        attacks: Injection attacks to apply (does nothing if None or empty)
+    """
+    if not attacks:
+        return
+
+    for vector_id, attack in attacks.items():
+        # Escape special characters for JavaScript string
+        content = attack.content.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
+        await page.evaluate(
+            f"""
+            const walker = document.createTreeWalker(
+                document.body,
+                NodeFilter.SHOW_TEXT,
+                null,
+                false
+            );
+            while (walker.nextNode()) {{
+                if (walker.currentNode.textContent.includes('{{{vector_id}}}')) {{
+                    walker.currentNode.textContent =
+                        walker.currentNode.textContent.replace('{{{vector_id}}}', `{content}`);
+                }}
+            }}
+            """
+        )
 
 
 class CapturedRequest(TypedDict):
@@ -148,7 +222,8 @@ class BrowserTaskMetadata(BaseModel):
 
 
 class BrowserEnvironment(
-    NonSnapshottableAbstractEnvironment[BrowserEnvState, Page, BinaryContent, StrContentAttack],
+    NonSnapshottableAbstractEnvironment[BrowserEnvState, Page, OutputT, StrContentAttack],
+    Generic[OutputT],
 ):
     """Browser environment with fresh containers per task.
 
@@ -159,6 +234,10 @@ class BrowserEnvironment(
     - Supports true parallel execution
 
     Uses tool replay (NonSnapshottable) since Page objects cannot be cloned.
+
+    The OutputT type parameter determines the observation format:
+    - BinaryContent for screenshot-based observations
+    - str for accessibility tree or HTML observations
     """
 
     name: str
@@ -168,6 +247,7 @@ class BrowserEnvironment(
     _browser_container_spec: ContainerSpec
     _site_container_specs: dict[str, ContainerSpec]
     _site_urls: dict[str, str]
+    _render_fn: RenderFn[OutputT]
 
     # Task setups prepared during batch context
     _task_setups: list[SandboxTaskSetup]
@@ -180,6 +260,7 @@ class BrowserEnvironment(
         sandbox_manager: AbstractSandboxManager,
         browser_container_spec: ContainerSpec,
         site_container_specs: dict[str, ContainerSpec],
+        render_fn: RenderFn[OutputT],
         site_urls: dict[str, str] | None = None,
     ) -> None:
         """Initialize browser environment.
@@ -190,6 +271,7 @@ class BrowserEnvironment(
             sandbox_manager: Sandbox manager for container lifecycle
             browser_container_spec: Spec for browser container (Chromium with CDP)
             site_container_specs: Specs for site containers (Gitea, Answer, etc.)
+            render_fn: Function to render Page to observation format (OutputT)
             site_urls: Mapping of site name to base URL
         """
         self.name = name
@@ -199,6 +281,7 @@ class BrowserEnvironment(
         self._browser_container_spec = browser_container_spec
         self._site_container_specs = site_container_specs
         self._site_urls = site_urls or {}
+        self._render_fn = render_fn
 
         self._task_setups = []
 
@@ -235,24 +318,10 @@ class BrowserEnvironment(
         # Reconnect browser using existing Playwright instance
         new_browser = await env_state.playwright.chromium.connect_over_cdp(cdp_endpoint)
 
-        # Create new page and set up request capture
-        new_page = await new_browser.new_page()
-        new_captured_requests: list[CapturedRequest] = []
-
-        async def capture_handler(route, request: Request) -> None:
-            new_captured_requests.append(
-                CapturedRequest(
-                    url=request.url,
-                    method=request.method,
-                    post_data=request.post_data,
-                )
-            )
-            await route.continue_()
-
-        await new_page.route("**/*", capture_handler)
-
-        # Navigate to start URL
-        await new_page.goto(env_state.start_url)
+        # Create new page with request capture and navigate to start URL
+        new_page, new_captured_requests = await _setup_page_with_capture(
+            new_browser, env_state.start_url
+        )
 
         return BrowserEnvState(
             page=new_page,
@@ -282,8 +351,8 @@ class BrowserEnvironment(
         self,
         raw_output: Page,
         attacks: InjectionAttacksDict[StrContentAttack] | None = None,
-    ) -> BinaryContent:
-        """Render page with injections, return screenshot."""
+    ) -> OutputT:
+        """Render page with injections using the configured render function."""
         # Get defaults for any detected vectors
         vector_ids = await self.get_injectable_ids(raw_output)
         defaults = await self.get_default_for_injection_vectors(vector_ids)
@@ -291,30 +360,7 @@ class BrowserEnvironment(
         # Merge defaults with provided attacks (attacks override defaults)
         effective_attacks = defaults | (attacks or {})
 
-        # Use JavaScript to replace all {vector_id} placeholders in text nodes
-        for vector_id, attack in effective_attacks.items():
-            # Escape special characters for JavaScript string
-            content = attack.content.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
-            await raw_output.evaluate(
-                f"""
-                const walker = document.createTreeWalker(
-                    document.body,
-                    NodeFilter.SHOW_TEXT,
-                    null,
-                    false
-                );
-                while (walker.nextNode()) {{
-                    if (walker.currentNode.textContent.includes('{{{vector_id}}}')) {{
-                        walker.currentNode.textContent =
-                            walker.currentNode.textContent.replace('{{{vector_id}}}', `{content}`);
-                    }}
-                }}
-                """
-            )
-
-        # Return screenshot
-        png_bytes = await raw_output.screenshot(full_page=False)
-        return BinaryContent(data=png_bytes, media_type="image/png")
+        return await self._render_fn(raw_output, effective_attacks)
 
     def _extract_sites_from_single_task(
         self,
@@ -452,39 +498,17 @@ class BrowserEnvironment(
             cdp_port = next(iter(self._browser_container_spec.ports.keys()))
             cdp_endpoint = f"http://localhost:{cdp_port}"
 
+            # Determine starting URL (use primary site from benign task only)
+            start_url = self._resolve_start_url(task)
+
             # Use .start() instead of context manager so we can pass pw to env_state
             pw = await async_playwright().start()
             try:
                 browser = await pw.chromium.connect_over_cdp(cdp_endpoint)
 
                 try:
-                    # Create page and set up request capture
-                    page = await browser.new_page()
-                    captured_requests: list[CapturedRequest] = []
-
-                    async def capture_handler(route, request: Request) -> None:
-                        captured_requests.append(
-                            CapturedRequest(
-                                url=request.url,
-                                method=request.method,
-                                post_data=request.post_data,
-                            )
-                        )
-                        await route.continue_()
-
-                    await page.route("**/*", capture_handler)
-
-                    # Determine starting URL (use primary site from benign task only)
-                    sites = self._get_sites_from_task(task, include_malicious=False)
-                    primary_site = sites[0] if sites else "gitea"
-                    start_url = self._site_urls.get(primary_site, "http://localhost:3000")
-
-                    actual_task = task.benign if isinstance(task, TaskCouple) else task
-                    metadata = actual_task.metadata
-                    if isinstance(metadata, BrowserTaskMetadata) and metadata.start_url:
-                        start_url = metadata.start_url
-
-                    await page.goto(start_url)
+                    # Create page with request capture and navigate to start URL
+                    page, captured_requests = await _setup_page_with_capture(browser, start_url)
 
                     yield BrowserEnvState(
                         page=page,

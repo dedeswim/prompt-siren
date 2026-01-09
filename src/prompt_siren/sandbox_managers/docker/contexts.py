@@ -469,11 +469,16 @@ class TaskSandboxContext:
         """
         config: dict[str, Any] = {"Image": image_tag, "HostConfig": {}}
 
-        # Set command (if provided)
-        # - command=None: use image default (don't set Cmd)
+        # Set command
+        # - command=None: default to "sleep infinity" to keep container running
         # - command=[...]: use the specified command
+        # Note: "sleep infinity" is needed for images without a CMD (e.g., SWE-bench instances).
+        # Images with their own ENTRYPOINT (e.g., chromedp/headless-shell) still work because
+        # Docker runs ENTRYPOINT + CMD, and our CMD gets ignored if ENTRYPOINT handles it.
         if container_setup.spec.command:
             config["Cmd"] = container_setup.spec.command
+        else:
+            config["Cmd"] = ["sleep", "infinity"]
 
         # Set environment variables
         if container_setup.spec.environment:
@@ -488,8 +493,7 @@ class TaskSandboxContext:
         # Set port bindings
         config["ExposedPorts"] = {f"{cp}/tcp": {} for cp in container_setup.spec.ports.values()}
         config["HostConfig"]["PortBindings"] = {
-            f"{cp}/tcp": [{"HostPort": str(hp)}]
-            for hp, cp in container_setup.spec.ports.items()
+            f"{cp}/tcp": [{"HostPort": str(hp)}] for hp, cp in container_setup.spec.ports.items()
         }
 
         # Apply network configuration

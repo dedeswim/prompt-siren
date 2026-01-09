@@ -8,8 +8,10 @@ and replace with attack content.
 
 from .answer import seed_answer
 from .gitea import seed_gitea
+from .wikijs import seed_wikijs
 
 __all__ = [
     "seed_answer",
     "seed_gitea",
+    "seed_wikijs",
 ]

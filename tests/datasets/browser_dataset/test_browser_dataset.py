@@ -6,14 +6,15 @@ from unittest.mock import MagicMock
 
 import pytest
 from prompt_siren.datasets.browser_dataset import (
-    BrowserDataset,
     BrowserDatasetConfig,
-    create_browser_dataset,
+    ScreenshotBrowserDataset,
+    create_screenshot_browser_dataset,
 )
 from prompt_siren.datasets.browser_dataset.config import (
     BrowserContainerConfig,
     SqliteSiteConfig,
 )
+from prompt_siren.environments.browser_env import BrowserTaskMetadata
 from prompt_siren.tasks import TaskCouple
 
 
@@ -77,17 +78,17 @@ class TestSiteConfigGetUrl:
         assert config.get_url() == "http://localhost:8080"
 
 
-class TestBrowserDataset:
-    """Tests for BrowserDataset class."""
+class TestScreenshotBrowserDataset:
+    """Tests for ScreenshotBrowserDataset class."""
 
     @pytest.fixture
-    def dataset(self) -> BrowserDataset:
+    def dataset(self) -> ScreenshotBrowserDataset:
         """Create a dataset with default configuration and mock sandbox manager."""
         config = BrowserDatasetConfig()
         mock_manager = MagicMock()
-        return create_browser_dataset(config, sandbox_manager=mock_manager)
+        return create_screenshot_browser_dataset(config, sandbox_manager=mock_manager)
 
-    def test_task_couples_have_compatible_sites(self, dataset: BrowserDataset):
+    def test_task_couples_have_compatible_sites(self, dataset: ScreenshotBrowserDataset):
         """Test that task couples are defined with semantically compatible sites.
 
         Each couple must have at least one overlapping site between benign and
@@ -107,10 +108,10 @@ class TestBrowserDataset:
             benign_sites: set[str] = set()
             malicious_sites: set[str] = set()
 
-            if hasattr(benign_meta, "sites"):
-                benign_sites.update(benign_meta.sites)  # pyright: ignore[reportAttributeAccessIssue,reportOptionalMemberAccess]
-            if hasattr(malicious_meta, "sites"):
-                malicious_sites.update(malicious_meta.sites)  # pyright: ignore[reportAttributeAccessIssue,reportOptionalMemberAccess]
+            if isinstance(benign_meta, BrowserTaskMetadata):
+                benign_sites.update(benign_meta.sites)
+            if isinstance(malicious_meta, BrowserTaskMetadata):
+                malicious_sites.update(malicious_meta.sites)
 
             # At least one site should overlap or malicious should include benign's site
             assert benign_sites & malicious_sites or benign_sites <= malicious_sites, (
@@ -118,7 +119,7 @@ class TestBrowserDataset:
                 f"benign={benign_sites}, malicious={malicious_sites}"
             )
 
-    def test_task_ids_unique(self, dataset: BrowserDataset):
+    def test_task_ids_unique(self, dataset: ScreenshotBrowserDataset):
         """Test that task IDs are unique (catches accidental duplicates)."""
         benign_ids = [t.id for t in dataset.benign_tasks]
         malicious_ids = [t.id for t in dataset.malicious_tasks]

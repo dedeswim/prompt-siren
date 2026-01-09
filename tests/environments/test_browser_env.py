@@ -52,6 +52,11 @@ def site_container_specs() -> dict[str, ContainerSpec]:
     }
 
 
+async def _mock_render_fn(page, attacks):
+    """Mock render function for testing."""
+    return "rendered"
+
+
 @pytest.fixture
 def browser_env(
     mock_sandbox_manager: MagicMock,
@@ -66,6 +71,7 @@ def browser_env(
         sandbox_manager=mock_sandbox_manager,
         browser_container_spec=browser_container_spec,
         site_container_specs=site_container_specs,
+        render_fn=_mock_render_fn,
         site_urls={
             "gitea": "http://gitea.dev-forge.io",
             "answer": "http://answers.dev-community.io",
