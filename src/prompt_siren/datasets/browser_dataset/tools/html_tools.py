@@ -9,6 +9,15 @@ from pydantic_ai import RunContext
 
 from ....environments.browser_env import BrowserEnvState
 
+MAX_PAGE_TEXT_LENGTH = 10000
+
+
+def _truncate(text: str, max_len: int = 50) -> str:
+    """Truncate text with ellipsis if longer than max_len."""
+    if len(text) <= max_len:
+        return text
+    return text[:max_len] + "..."
+
 
 async def click_selector(
     ctx: RunContext[BrowserEnvState],
@@ -49,7 +58,7 @@ async def fill_input(
     page = ctx.deps.page
     try:
         await page.fill(selector, value, timeout=5000)
-        return f"Filled input '{selector}' with: {value[:50]}{'...' if len(value) > 50 else ''}"
+        return f"Filled input '{selector}' with: {_truncate(value)}"
     except Exception as e:
         return f"Failed to fill input '{selector}': {e}"
 
@@ -63,14 +72,12 @@ async def get_page_text(
         ctx: The run context containing the browser page
 
     Returns:
-        The text content of the page
+        The text content of the page (truncated if over 10000 chars)
     """
     page = ctx.deps.page
     text = await page.inner_text("body")
-    # Truncate if too long
-    max_length = 10000
-    if len(text) > max_length:
-        text = text[:max_length] + "\n...[truncated]"
+    if len(text) > MAX_PAGE_TEXT_LENGTH:
+        return text[:MAX_PAGE_TEXT_LENGTH] + "\n...[truncated]"
     return text
 
 

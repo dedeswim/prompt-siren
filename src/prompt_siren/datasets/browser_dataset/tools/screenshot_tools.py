@@ -12,6 +12,13 @@ from pydantic_ai import RunContext
 from ....environments.browser_env import BrowserEnvState
 
 
+def _truncate(text: str, max_len: int = 50) -> str:
+    """Truncate text with ellipsis if longer than max_len."""
+    if len(text) <= max_len:
+        return text
+    return text[:max_len] + "..."
+
+
 async def click(
     ctx: RunContext[BrowserEnvState],
     x: int,
@@ -74,4 +81,4 @@ async def type_text(
     """
     page = ctx.deps.page
     await page.keyboard.type(text)
-    return f"Typed: {text[:50]}{'...' if len(text) > 50 else ''}"
+    return f"Typed: {_truncate(text)}"

@@ -29,13 +29,19 @@ async def click_element(
     """
     page = ctx.deps.page
     try:
-        if name:
-            await page.get_by_role(role, name=name).click(timeout=5000)  # type: ignore[arg-type]
-            return f"Clicked {role} with name '{name}'"
-        await page.get_by_role(role).click(timeout=5000)  # type: ignore[arg-type]
-        return f"Clicked {role}"
+        locator = page.get_by_role(role, name=name) if name else page.get_by_role(role)  # type: ignore[arg-type]
+        await locator.click(timeout=5000)
+        name_part = f" with name '{name}'" if name else ""
+        return f"Clicked {role}{name_part}"
     except Exception as e:
         return f"Failed to click {role} (name={name}): {e}"
+
+
+def _truncate(text: str, max_len: int = 50) -> str:
+    """Truncate text with ellipsis if longer than max_len."""
+    if len(text) <= max_len:
+        return text
+    return text[:max_len] + "..."
 
 
 async def fill_element(
@@ -57,11 +63,10 @@ async def fill_element(
     """
     page = ctx.deps.page
     try:
-        if name:
-            await page.get_by_role(role, name=name).fill(value, timeout=5000)  # type: ignore[arg-type]
-            return f"Filled {role} '{name}' with: {value[:50]}{'...' if len(value) > 50 else ''}"
-        await page.get_by_role(role).fill(value, timeout=5000)  # type: ignore[arg-type]
-        return f"Filled {role} with: {value[:50]}{'...' if len(value) > 50 else ''}"
+        locator = page.get_by_role(role, name=name) if name else page.get_by_role(role)  # type: ignore[arg-type]
+        await locator.fill(value, timeout=5000)
+        name_part = f" '{name}'" if name else ""
+        return f"Filled {role}{name_part} with: {_truncate(value)}"
     except Exception as e:
         return f"Failed to fill {role} (name={name}): {e}"
 
