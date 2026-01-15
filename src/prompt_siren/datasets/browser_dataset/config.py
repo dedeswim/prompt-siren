@@ -1,6 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 """Configuration for browser-based dataset."""
 
+import logging
 from importlib.resources import files
 from pathlib import Path
 from typing import Annotated, Literal
@@ -11,6 +12,8 @@ from typing_extensions import assert_never
 from ...environments.browser_env import SiteName
 from ...sandbox_managers.image_spec import BuildImageSpec, ImageSpec, PullImageSpec
 from ...sandbox_managers.sandbox_task_setup import ContainerSpec
+
+logger = logging.getLogger(__name__)
 
 # Default browser container image (Headless Chrome with CDP support)
 # chromedp/headless-shell is Debian-based and designed for CDP usage
@@ -35,7 +38,9 @@ def _get_docker_subdir(subdir: str) -> Path | None:
     """
     try:
         # Get the Traversable for the docker subdirectory
-        docker_traversable = files("prompt_siren.datasets.browser_dataset").joinpath("docker").joinpath(subdir)
+        docker_traversable = (
+            files("prompt_siren.datasets.browser_dataset").joinpath("docker").joinpath(subdir)
+        )
 
         # Convert to a real path - works for directory-based installations
         # For zip-based installations, this will be a path inside the zip
@@ -44,8 +49,17 @@ def _get_docker_subdir(subdir: str) -> Path | None:
 
         if real_path.is_dir() and (real_path / "Dockerfile").exists():
             return real_path
-    except (TypeError, FileNotFoundError, OSError):
-        pass
+        logger.debug(
+            "No valid Docker build context found for %s at %s (directory or Dockerfile missing)",
+            subdir,
+            real_path,
+        )
+    except (TypeError, FileNotFoundError) as e:
+        # Expected when package is zip-installed or context doesn't exist
+        logger.debug("Could not locate Docker build context for %s: %s", subdir, e)
+    except OSError as e:
+        # Unexpected filesystem error
+        logger.warning("Filesystem error accessing Docker build context for %s: %s", subdir, e)
     return None
 
 
@@ -60,8 +74,8 @@ class BaseSiteConfig(BaseModel):
     This hostname is used in task prompts and URLs. Docker DNS resolves
     this hostname to the container when using containerized browser mode.
     """
-    port: int
-    """Port the site runs on inside the container."""
+    port: Annotated[int, Field(ge=1, le=65535)]
+    """Port the site runs on inside the container (1-65535)."""
     base_url: str | None = None
     """Override base URL for the site. If not set, defaults to http://{hostname}:{port}."""
     build_context: Path | None = None
@@ -103,13 +117,20 @@ class BaseSiteConfig(BaseModel):
         if build_path is None and site_name is not None:
             build_path = _get_docker_subdir(site_name)
 
-        if build_path is not None and build_path.exists():
-            # Use pre-seeded image built from context
-            # Tag based on hostname to make it unique
-            safe_hostname = self.hostname.replace(".", "-")
-            return BuildImageSpec(
-                context_path=str(build_path),
-                tag=f"prompt-siren/{safe_hostname}:latest",
+        if build_path is not None:
+            if build_path.exists():
+                # Use pre-seeded image built from context
+                # Tag based on hostname to make it unique
+                safe_hostname = self.hostname.replace(".", "-")
+                return BuildImageSpec(
+                    context_path=str(build_path),
+                    tag=f"prompt-siren/{safe_hostname}:latest",
+                )
+            logger.warning(
+                "Build context path %s does not exist for %s, falling back to base image %s",
+                build_path,
+                self.hostname,
+                self.container_image,
             )
         # Fall back to pulling the base image
         return PullImageSpec(tag=self.container_image)
@@ -157,8 +178,8 @@ class BrowserContainerConfig(BaseModel):
 
     image: str = DEFAULT_BROWSER_IMAGE
     """Docker image for the browser container."""
-    cdp_port: int = CDP_PORT
-    """CDP port for remote debugging."""
+    cdp_port: Annotated[int, Field(ge=1, le=65535)] = CDP_PORT
+    """CDP port for remote debugging (1-65535)."""
 
     def to_container_spec(self) -> ContainerSpec:
         """Convert to ContainerSpec for sandbox manager.

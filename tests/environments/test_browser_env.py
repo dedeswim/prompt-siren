@@ -1,16 +1,22 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 """Unit tests for BrowserEnvironment."""
 
-from unittest.mock import AsyncMock, MagicMock
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from prompt_siren.environments.browser_env import (
+    _fire_and_forget,
+    _setup_page_with_capture,
+    apply_injections,
     BrowserEnvironment,
     BrowserTaskMetadata,
+    InjectionError,
 )
 from prompt_siren.sandbox_managers.image_spec import PullImageSpec
 from prompt_siren.sandbox_managers.sandbox_task_setup import ContainerSpec
 from prompt_siren.tasks import BenignTask, MaliciousTask, TaskCouple
+from prompt_siren.types import StrContentAttack
 
 pytestmark = pytest.mark.anyio
 
@@ -149,7 +155,9 @@ class TestGetSitesFromTask:
             id="cross_site_task",
             prompt="Do something across sites",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["gitea", "answer"], start_url="http://gitea.dev-forge.io"),
+            metadata=BrowserTaskMetadata(
+                sites=["gitea", "answer"], start_url="http://gitea.dev-forge.io"
+            ),
         )
 
         result = browser_env._get_sites_from_task(task)
@@ -169,7 +177,9 @@ class TestGetSitesFromTask:
             id="malicious_task",
             goal="Attack",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["answer"], start_url="http://answers.dev-community.io"),
+            metadata=BrowserTaskMetadata(
+                sites=["answer"], start_url="http://answers.dev-community.io"
+            ),
         )
         couple = TaskCouple(benign=benign, malicious=malicious)
 
@@ -190,7 +200,9 @@ class TestGetSitesFromTask:
             id="malicious_task",
             goal="Attack across sites",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["answer", "wikijs"], start_url="http://answers.dev-community.io"),
+            metadata=BrowserTaskMetadata(
+                sites=["answer", "wikijs"], start_url="http://answers.dev-community.io"
+            ),
         )
         couple = TaskCouple(benign=benign, malicious=malicious)
 
@@ -234,7 +246,9 @@ class TestGetSitesFromTask:
             id="malicious_task",
             goal="Attack",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["answer"], start_url="http://answers.dev-community.io"),
+            metadata=BrowserTaskMetadata(
+                sites=["answer"], start_url="http://answers.dev-community.io"
+            ),
         )
         couple = TaskCouple(benign=benign, malicious=malicious)
 
@@ -249,7 +263,9 @@ class TestGetSitesFromTask:
             id="cross_site_task",
             prompt="Do something across sites",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["answer", "gitea"], start_url="http://answers.dev-community.io"),
+            metadata=BrowserTaskMetadata(
+                sites=["answer", "gitea"], start_url="http://answers.dev-community.io"
+            ),
         )
 
         result = browser_env._get_sites_from_task(task)
@@ -285,7 +301,9 @@ class TestCreateTaskSetup:
             id="cross_site_task",
             prompt="Do something across sites",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["gitea", "answer"], start_url="http://gitea.dev-forge.io"),
+            metadata=BrowserTaskMetadata(
+                sites=["gitea", "answer"], start_url="http://gitea.dev-forge.io"
+            ),
         )
 
         setup = browser_env._create_task_setup(task)
@@ -307,7 +325,9 @@ class TestCreateTaskSetup:
             id="malicious_task",
             goal="Attack",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["answer"], start_url="http://answers.dev-community.io"),
+            metadata=BrowserTaskMetadata(
+                sites=["answer"], start_url="http://answers.dev-community.io"
+            ),
         )
         couple = TaskCouple(benign=benign, malicious=malicious)
 
@@ -350,7 +370,9 @@ class TestCreateTaskSetup:
             id="wiki_task",
             prompt="Do something on wiki",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["gitea", "wikijs"], start_url="http://gitea.dev-forge.io"),
+            metadata=BrowserTaskMetadata(
+                sites=["gitea", "wikijs"], start_url="http://gitea.dev-forge.io"
+            ),
         )
 
         setup = browser_env._create_task_setup(task)
@@ -358,3 +380,185 @@ class TestCreateTaskSetup:
         # Only gitea should be in service containers (wikijs not configured)
         assert "gitea" in setup.service_containers
         assert "wikijs" not in setup.service_containers
+
+
+class TestApplyInjections:
+    """Tests for apply_injections function."""
+
+    async def test_does_nothing_when_attacks_none(self):
+        """Test that apply_injections does nothing when attacks is None."""
+        mock_page = MagicMock()
+        mock_page.evaluate = AsyncMock()
+
+        await apply_injections(mock_page, None)
+
+        mock_page.evaluate.assert_not_called()
+
+    async def test_does_nothing_when_attacks_empty(self):
+        """Test that apply_injections does nothing when attacks dict is empty."""
+        mock_page = MagicMock()
+        mock_page.evaluate = AsyncMock()
+
+        await apply_injections(mock_page, {})
+
+        mock_page.evaluate.assert_not_called()
+
+    async def test_replaces_single_placeholder(self):
+        """Test that a single injection placeholder is replaced."""
+        mock_page = MagicMock()
+        mock_page.evaluate = AsyncMock()
+
+        attacks = {"vector1": StrContentAttack(content="injected payload")}
+        await apply_injections(mock_page, attacks)
+
+        mock_page.evaluate.assert_called_once()
+        call_args = mock_page.evaluate.call_args
+        assert call_args[0][1] == ["{vector1}", "injected payload"]
+
+    async def test_replaces_multiple_placeholders(self):
+        """Test that multiple injection placeholders are replaced."""
+        mock_page = MagicMock()
+        mock_page.evaluate = AsyncMock()
+
+        attacks = {
+            "vector1": StrContentAttack(content="payload1"),
+            "vector2": StrContentAttack(content="payload2"),
+        }
+        await apply_injections(mock_page, attacks)
+
+        assert mock_page.evaluate.call_count == 2
+
+    async def test_handles_special_characters_in_content(self):
+        """Test that special characters in attack content are passed safely."""
+        mock_page = MagicMock()
+        mock_page.evaluate = AsyncMock()
+
+        # Content with characters that could be problematic if not handled
+        attacks = {"vector1": StrContentAttack(content="alert('xss'); ${malicious}")}
+        await apply_injections(mock_page, attacks)
+
+        call_args = mock_page.evaluate.call_args
+        # Content is passed as parameter, not interpolated into JS
+        assert call_args[0][1][1] == "alert('xss'); ${malicious}"
+
+    async def test_raises_injection_error_on_evaluate_failure(self):
+        """Test that InjectionError is raised when page.evaluate fails."""
+        mock_page = MagicMock()
+        mock_page.url = "http://example.com/test"
+        mock_page.evaluate = AsyncMock(side_effect=RuntimeError("Page navigated away"))
+
+        attacks = {"vector1": StrContentAttack(content="payload")}
+
+        with pytest.raises(InjectionError) as exc_info:
+            await apply_injections(mock_page, attacks)
+
+        assert "vector1" in str(exc_info.value)
+        assert "http://example.com/test" in str(exc_info.value)
+
+
+class TestFireAndForget:
+    """Tests for _fire_and_forget function."""
+
+    async def test_completed_tasks_are_discarded(self):
+        """Test that completed tasks are removed from tracking set."""
+        from prompt_siren.environments.browser_env import _background_tasks
+
+        async def quick_task():
+            return "done"
+
+        initial_count = len(_background_tasks)
+        _fire_and_forget(quick_task())
+
+        # Wait for task to complete
+        await asyncio.sleep(0.1)
+
+        # Task should be removed from tracking
+        assert len(_background_tasks) == initial_count
+
+    async def test_failed_tasks_are_logged_and_discarded(self):
+        """Test that failed tasks are logged and removed from tracking."""
+        from prompt_siren.environments.browser_env import _background_tasks
+
+        async def failing_task():
+            raise ValueError("intentional failure")
+
+        initial_count = len(_background_tasks)
+
+        with patch("prompt_siren.environments.browser_env.logger") as mock_logger:
+            _fire_and_forget(failing_task())
+            await asyncio.sleep(0.1)
+
+            # Task should be removed from tracking
+            assert len(_background_tasks) == initial_count
+            # Error should be logged
+            mock_logger.warning.assert_called_once()
+
+    async def test_cancelled_tasks_are_handled_gracefully(self):
+        """Test that cancelled tasks don't cause errors."""
+        from prompt_siren.environments.browser_env import _background_tasks
+
+        async def slow_task():
+            await asyncio.sleep(10)
+
+        initial_count = len(_background_tasks)
+
+        with patch("prompt_siren.environments.browser_env.logger") as mock_logger:
+            _fire_and_forget(slow_task())
+            await asyncio.sleep(0.01)
+
+            # Find and cancel the task
+            for task in list(_background_tasks):
+                task.cancel()
+
+            await asyncio.sleep(0.1)
+
+            # Task should be removed, no warning logged for cancellation
+            assert len(_background_tasks) == initial_count
+            mock_logger.warning.assert_not_called()
+
+
+class TestSetupPageWithCapture:
+    """Tests for _setup_page_with_capture function."""
+
+    async def test_closes_page_on_navigation_failure(self):
+        """Test that page is closed if navigation fails."""
+        mock_browser = MagicMock()
+        mock_page = MagicMock()
+        mock_page.route = AsyncMock()
+        mock_page.goto = AsyncMock(side_effect=RuntimeError("Navigation failed"))
+        mock_page.close = AsyncMock()
+        mock_browser.new_page = AsyncMock(return_value=mock_page)
+
+        with pytest.raises(RuntimeError, match="Navigation failed"):
+            await _setup_page_with_capture(mock_browser, "http://example.com")
+
+        # Page should be closed on failure
+        mock_page.close.assert_called_once()
+
+    async def test_closes_page_on_route_setup_failure(self):
+        """Test that page is closed if route setup fails."""
+        mock_browser = MagicMock()
+        mock_page = MagicMock()
+        mock_page.route = AsyncMock(side_effect=RuntimeError("Route setup failed"))
+        mock_page.close = AsyncMock()
+        mock_browser.new_page = AsyncMock(return_value=mock_page)
+
+        with pytest.raises(RuntimeError, match="Route setup failed"):
+            await _setup_page_with_capture(mock_browser, "http://example.com")
+
+        mock_page.close.assert_called_once()
+
+    async def test_returns_page_and_captures_on_success(self):
+        """Test successful page setup returns page and capture list."""
+        mock_browser = MagicMock()
+        mock_page = MagicMock()
+        mock_page.route = AsyncMock()
+        mock_page.goto = AsyncMock()
+        mock_page.close = AsyncMock()
+        mock_browser.new_page = AsyncMock(return_value=mock_page)
+
+        page, captured = await _setup_page_with_capture(mock_browser, "http://example.com")
+
+        assert page is mock_page
+        assert captured == []
+        mock_page.close.assert_not_called()

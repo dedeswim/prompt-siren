@@ -53,7 +53,11 @@ mutation CreatePage($content: String!, $description: String!, $editor: String!, 
 
 def _load_seed_data() -> WikiSeedData:
     """Load and validate seed data from JSON file."""
-    data_file = files("prompt_siren.datasets.browser_dataset.seeding").joinpath("data").joinpath("wikijs.json")
+    data_file = (
+        files("prompt_siren.datasets.browser_dataset.seeding")
+        .joinpath("data")
+        .joinpath("wikijs.json")
+    )
     return WikiSeedData.model_validate_json(data_file.read_text())
 
 

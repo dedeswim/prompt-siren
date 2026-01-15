@@ -8,6 +8,7 @@ injection vector placeholders.
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass, field
 from importlib.resources import files
 
@@ -15,10 +16,16 @@ import aiohttp
 
 from .models import AnswerSeedData
 
+logger = logging.getLogger(__name__)
+
 
 def _load_seed_data() -> AnswerSeedData:
     """Load and validate seed data from JSON file."""
-    data_file = files("prompt_siren.datasets.browser_dataset.seeding").joinpath("data").joinpath("answer.json")
+    data_file = (
+        files("prompt_siren.datasets.browser_dataset.seeding")
+        .joinpath("data")
+        .joinpath("answer.json")
+    )
     return AnswerSeedData.model_validate_json(data_file.read_text())
 
 
@@ -160,6 +167,11 @@ class AnswerSeeder:
 
             q_id = question.get("data", {}).get("id", "")
             if not q_id:
+                logger.warning(
+                    "Failed to get question ID for '%s', skipping answers and comments. Response: %s",
+                    q_def.title,
+                    question,
+                )
                 continue
 
             for answer_def in q_def.answers:
@@ -171,6 +183,11 @@ class AnswerSeeder:
 
                 a_id = answer.get("data", {}).get("id", "")
                 if not a_id:
+                    logger.warning(
+                        "Failed to get answer ID for question '%s', skipping comments. Response: %s",
+                        q_def.title,
+                        answer,
+                    )
                     continue
 
                 for comment in answer_def.comments:

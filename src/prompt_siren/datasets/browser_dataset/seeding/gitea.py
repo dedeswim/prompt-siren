@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import logging
 from dataclasses import dataclass, field
 from importlib.resources import files
 
@@ -16,10 +17,16 @@ import aiohttp
 
 from .models import GiteaSeedData
 
+logger = logging.getLogger(__name__)
+
 
 def _load_seed_data() -> GiteaSeedData:
     """Load and validate seed data from JSON file."""
-    data_file = files("prompt_siren.datasets.browser_dataset.seeding").joinpath("data").joinpath("gitea.json")
+    data_file = (
+        files("prompt_siren.datasets.browser_dataset.seeding")
+        .joinpath("data")
+        .joinpath("gitea.json")
+    )
     return GiteaSeedData.model_validate_json(data_file.read_text())
 
 
@@ -51,8 +58,12 @@ class GiteaSeeder:
                 async with session.delete(
                     f"{self.base_url}/api/v1/users/{self.admin_username}/tokens/seeding-token",
                     auth=auth,
-                ) as _:
-                    pass
+                ) as delete_resp:
+                    if delete_resp.status not in (200, 204, 404):
+                        logger.warning(
+                            "Unexpected status %d when deleting existing token, recreating anyway",
+                            delete_resp.status,
+                        )
                 return await self._get_token(session)
             else:
                 raise RuntimeError(f"Failed to create token: {resp.status}")
@@ -88,6 +99,10 @@ class GiteaSeeder:
             if resp.status == 201:
                 return await resp.json()
             if resp.status == 422:
+                # 422 typically means user already exists
+                logger.debug(
+                    "User %s creation returned 422, assuming user already exists", username
+                )
                 return {"username": username}
             text = await resp.text()
             raise RuntimeError(f"Failed to create user {username}: {resp.status} {text}")

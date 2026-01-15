@@ -27,7 +27,7 @@ from pydantic import BaseModel
 from typing_extensions import Self
 
 try:
-    from playwright.async_api import async_playwright, Browser, Page, Playwright, Request
+    from playwright.async_api import async_playwright, Browser, Page, Playwright, Request, Route
 except ImportError as e:
     raise ImportError(
         "Browser environment requires the 'playwright' optional dependency. "
@@ -51,8 +51,8 @@ logger = logging.getLogger(__name__)
 # Output type varies by observation modality
 OutputT = TypeVar("OutputT")
 
-# Type alias for render function
-RenderFn = Callable[[Page, "InjectionAttacksDict[StrContentAttack]"], Awaitable[OutputT]]
+# Type alias for render function (attacks can be None for benign rendering)
+RenderFn = Callable[[Page, InjectionAttacksDict[StrContentAttack] | None], Awaitable[OutputT]]
 
 # Valid site names for browser environment
 SiteName = Literal["gitea", "answer", "wikijs", "classifieds"]
@@ -95,24 +95,36 @@ async def _setup_page_with_capture(
 
     Returns:
         Tuple of (page, captured_requests list)
+
+    Raises:
+        Exception: Re-raises any exception after cleaning up the page resource.
     """
     page = await browser.new_page()
     captured_requests: list[CapturedRequest] = []
 
-    async def capture_handler(route, request: Request) -> None:
-        captured_requests.append(
-            CapturedRequest(
-                url=request.url,
-                method=request.method,
-                post_data=request.post_data,
+    try:
+
+        async def capture_handler(route: Route, request: Request) -> None:
+            captured_requests.append(
+                CapturedRequest(
+                    url=request.url,
+                    method=request.method,
+                    post_data=request.post_data,
+                )
             )
-        )
-        await route.continue_()
+            await route.continue_()
 
-    await page.route("**/*", capture_handler)
-    await page.goto(start_url)
+        await page.route("**/*", capture_handler)
+        await page.goto(start_url)
 
-    return page, captured_requests
+        return page, captured_requests
+    except Exception:
+        await page.close()
+        raise
+
+
+class InjectionError(Exception):
+    """Error raised when injection fails."""
 
 
 async def apply_injections(
@@ -124,32 +136,43 @@ async def apply_injections(
     This modifies DOM text nodes to replace placeholders with attack content.
     Used by dataset render functions to inject attack payloads before rendering.
 
+    Note: Only text nodes are modified. Placeholders in HTML attributes or
+    script content will not be replaced.
+
     Args:
         page: Playwright page to modify
         attacks: Injection attacks to apply (does nothing if None or empty)
+
+    Raises:
+        InjectionError: If JavaScript evaluation fails (e.g., page navigated away)
     """
     if not attacks:
         return
 
     for vector_id, attack in attacks.items():
-        # Escape special characters for JavaScript string
-        content = attack.content.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
-        await page.evaluate(
-            f"""
-            const walker = document.createTreeWalker(
-                document.body,
-                NodeFilter.SHOW_TEXT,
-                null,
-                false
-            );
-            while (walker.nextNode()) {{
-                if (walker.currentNode.textContent.includes('{{{vector_id}}}')) {{
-                    walker.currentNode.textContent =
-                        walker.currentNode.textContent.replace('{{{vector_id}}}', `{content}`);
-                }}
-            }}
-            """
-        )
+        placeholder = f"{{{vector_id}}}"
+        try:
+            await page.evaluate(
+                """([placeholder, replacement]) => {
+                    const walker = document.createTreeWalker(
+                        document.body,
+                        NodeFilter.SHOW_TEXT,
+                        null,
+                        false
+                    );
+                    while (walker.nextNode()) {
+                        if (walker.currentNode.textContent.includes(placeholder)) {
+                            walker.currentNode.textContent =
+                                walker.currentNode.textContent.replace(placeholder, replacement);
+                        }
+                    }
+                }""",
+                [placeholder, attack.content],
+            )
+        except Exception as e:
+            raise InjectionError(
+                f"Failed to apply injection for vector '{vector_id}' on page {page.url}"
+            ) from e
 
 
 class CapturedRequest(TypedDict):
@@ -172,7 +195,9 @@ class BrowserEnvState:
         sandbox_manager: Manager for executing commands in containers
         task_setup: Task setup for recreating containers on reset
         start_url: Initial URL for navigation on reset
-        captured_requests: List of captured outgoing requests (for attack evaluation)
+
+    Properties:
+        captured_requests: Read-only sequence of captured HTTP requests (for attack evaluation)
     """
 
     page: Page
@@ -182,7 +207,12 @@ class BrowserEnvState:
     sandbox_manager: AbstractSandboxManager
     task_setup: SandboxTaskSetup
     start_url: str
-    captured_requests: list[CapturedRequest] = field(default_factory=list)
+    _captured_requests: list[CapturedRequest] = field(default_factory=list)
+
+    @property
+    def captured_requests(self) -> Sequence[CapturedRequest]:
+        """Read-only view of captured requests for attack evaluation."""
+        return self._captured_requests
 
     @property
     def browser_container_id(self) -> ContainerID:
@@ -327,7 +357,7 @@ class BrowserEnvironment(
             sandbox_manager=env_state.sandbox_manager,
             task_setup=env_state.task_setup,
             start_url=env_state.start_url,
-            captured_requests=new_captured_requests,
+            _captured_requests=new_captured_requests,
         )
 
     async def get_injectable_ids(self, raw_output: Page) -> list[InjectionVectorID]:
@@ -527,7 +557,7 @@ class BrowserEnvironment(
                         sandbox_manager=self._sandbox_manager,
                         task_setup=task_setup,
                         start_url=start_url,
-                        captured_requests=captured_requests,
+                        _captured_requests=captured_requests,
                     )
                 finally:
                     await browser.close()

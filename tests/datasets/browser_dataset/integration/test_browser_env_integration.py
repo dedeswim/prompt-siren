@@ -15,8 +15,8 @@ import asyncio
 import pytest
 from prompt_siren.datasets.browser_dataset import (
     BrowserDatasetConfig,
-    ScreenshotBrowserDataset,
     create_screenshot_browser_dataset,
+    ScreenshotBrowserDataset,
 )
 from prompt_siren.sandbox_managers.docker.manager import DockerSandboxManager
 from prompt_siren.sandbox_managers.sandbox_task_setup import SandboxTaskSetup

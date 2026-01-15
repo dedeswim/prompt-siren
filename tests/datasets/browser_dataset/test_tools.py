@@ -1,0 +1,329 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+"""Tests for browser tools (a11y_tools and html_tools)."""
+
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from playwright.async_api import TimeoutError as PlaywrightTimeout
+from prompt_siren.datasets.browser_dataset.tools.a11y_tools import (
+    _truncate as a11y_truncate,
+    check_element,
+    click_element,
+    fill_element,
+    scroll_page,
+    select_option,
+)
+from prompt_siren.datasets.browser_dataset.tools.html_tools import (
+    _truncate as html_truncate,
+    click_selector,
+    fill_input,
+    get_page_text,
+    MAX_PAGE_TEXT_LENGTH,
+    scroll_to_element,
+)
+from prompt_siren.environments.browser_env import BrowserEnvState
+from pydantic_ai import RunContext
+
+pytestmark = pytest.mark.anyio
+
+
+@pytest.fixture
+def mock_env_state() -> MagicMock:
+    """Create a mock BrowserEnvState."""
+    state = MagicMock(spec=BrowserEnvState)
+    state.page = MagicMock()
+    return state
+
+
+@pytest.fixture
+def mock_ctx(mock_env_state: MagicMock) -> MagicMock:
+    """Create a mock RunContext."""
+    ctx = MagicMock(spec=RunContext)
+    ctx.deps = mock_env_state
+    return ctx
+
+
+class TestTruncate:
+    """Tests for _truncate helper function."""
+
+    def test_returns_unchanged_when_shorter_than_max(self):
+        """Test that short text is returned unchanged."""
+        assert a11y_truncate("hello", max_len=50) == "hello"
+        assert html_truncate("hello", max_len=50) == "hello"
+
+    def test_returns_unchanged_when_exactly_max_length(self):
+        """Test that text exactly at max length is returned unchanged."""
+        text = "x" * 50
+        assert a11y_truncate(text, max_len=50) == text
+        assert html_truncate(text, max_len=50) == text
+
+    def test_truncates_with_ellipsis_when_longer(self):
+        """Test that text longer than max is truncated with ellipsis."""
+        text = "x" * 60
+        result = a11y_truncate(text, max_len=50)
+        assert len(result) == 53  # 50 + "..."
+        assert result.endswith("...")
+
+    def test_empty_string(self):
+        """Test that empty string is returned unchanged."""
+        assert a11y_truncate("", max_len=50) == ""
+        assert html_truncate("", max_len=50) == ""
+
+
+class TestA11yClickElement:
+    """Tests for click_element function."""
+
+    async def test_successful_click_with_name(self, mock_ctx: MagicMock):
+        """Test clicking an element with role and name."""
+        mock_locator = MagicMock()
+        mock_locator.click = AsyncMock()
+        mock_ctx.deps.page.get_by_role = MagicMock(return_value=mock_locator)
+
+        result = await click_element(mock_ctx, "button", "Submit")
+
+        mock_ctx.deps.page.get_by_role.assert_called_once_with("button", name="Submit")
+        mock_locator.click.assert_called_once_with(timeout=5000)
+        assert "Clicked button with name 'Submit'" in result
+
+    async def test_successful_click_without_name(self, mock_ctx: MagicMock):
+        """Test clicking an element by role only."""
+        mock_locator = MagicMock()
+        mock_locator.click = AsyncMock()
+        mock_ctx.deps.page.get_by_role = MagicMock(return_value=mock_locator)
+
+        result = await click_element(mock_ctx, "button")
+
+        mock_ctx.deps.page.get_by_role.assert_called_once_with("button")
+        assert "Clicked button" in result
+
+    async def test_timeout_returns_error_message(self, mock_ctx: MagicMock):
+        """Test that timeout returns user-friendly error."""
+        mock_locator = MagicMock()
+        mock_locator.click = AsyncMock(side_effect=PlaywrightTimeout("timeout"))
+        mock_ctx.deps.page.get_by_role = MagicMock(return_value=mock_locator)
+
+        result = await click_element(mock_ctx, "button", "Submit")
+
+        assert "Could not click" in result
+        assert "element not found or not clickable within timeout" in result
+
+
+class TestA11yFillElement:
+    """Tests for fill_element function."""
+
+    async def test_successful_fill(self, mock_ctx: MagicMock):
+        """Test filling a form element."""
+        mock_locator = MagicMock()
+        mock_locator.fill = AsyncMock()
+        mock_ctx.deps.page.get_by_role = MagicMock(return_value=mock_locator)
+
+        result = await fill_element(mock_ctx, "textbox", "test value", "Username")
+
+        mock_locator.fill.assert_called_once_with("test value", timeout=5000)
+        assert "Filled textbox 'Username'" in result
+        assert "test value" in result
+
+    async def test_fill_truncates_long_value_in_response(self, mock_ctx: MagicMock):
+        """Test that long values are truncated in the response message."""
+        mock_locator = MagicMock()
+        mock_locator.fill = AsyncMock()
+        mock_ctx.deps.page.get_by_role = MagicMock(return_value=mock_locator)
+
+        long_value = "x" * 100
+        result = await fill_element(mock_ctx, "textbox", long_value)
+
+        assert "..." in result
+
+    async def test_timeout_returns_error_message(self, mock_ctx: MagicMock):
+        """Test that timeout returns user-friendly error."""
+        mock_locator = MagicMock()
+        mock_locator.fill = AsyncMock(side_effect=PlaywrightTimeout("timeout"))
+        mock_ctx.deps.page.get_by_role = MagicMock(return_value=mock_locator)
+
+        result = await fill_element(mock_ctx, "textbox", "value", "Field")
+
+        assert "Could not fill" in result
+        assert "not editable within timeout" in result
+
+
+class TestA11ySelectOption:
+    """Tests for select_option function."""
+
+    async def test_successful_select(self, mock_ctx: MagicMock):
+        """Test selecting an option from combobox."""
+        mock_locator = MagicMock()
+        mock_locator.select_option = AsyncMock()
+        mock_ctx.deps.page.get_by_role = MagicMock(return_value=mock_locator)
+
+        result = await select_option(mock_ctx, "Country", "United States")
+
+        mock_ctx.deps.page.get_by_role.assert_called_once_with("combobox", name="Country")
+        mock_locator.select_option.assert_called_once_with("United States", timeout=5000)
+        assert "Selected 'United States' from 'Country'" in result
+
+    async def test_timeout_returns_error_message(self, mock_ctx: MagicMock):
+        """Test that timeout returns user-friendly error."""
+        mock_locator = MagicMock()
+        mock_locator.select_option = AsyncMock(side_effect=PlaywrightTimeout("timeout"))
+        mock_ctx.deps.page.get_by_role = MagicMock(return_value=mock_locator)
+
+        result = await select_option(mock_ctx, "Country", "United States")
+
+        assert "Could not select" in result
+        assert "not selectable within timeout" in result
+
+
+class TestA11yCheckElement:
+    """Tests for check_element function."""
+
+    async def test_successful_check(self, mock_ctx: MagicMock):
+        """Test checking a checkbox."""
+        mock_locator = MagicMock()
+        mock_locator.check = AsyncMock()
+        mock_ctx.deps.page.get_by_role = MagicMock(return_value=mock_locator)
+
+        result = await check_element(mock_ctx, "Terms", checked=True)
+
+        mock_locator.check.assert_called_once_with(timeout=5000)
+        assert "Checked checkbox 'Terms'" in result
+
+    async def test_successful_uncheck(self, mock_ctx: MagicMock):
+        """Test unchecking a checkbox."""
+        mock_locator = MagicMock()
+        mock_locator.uncheck = AsyncMock()
+        mock_ctx.deps.page.get_by_role = MagicMock(return_value=mock_locator)
+
+        result = await check_element(mock_ctx, "Terms", checked=False)
+
+        mock_locator.uncheck.assert_called_once_with(timeout=5000)
+        assert "Unchecked checkbox 'Terms'" in result
+
+    async def test_timeout_returns_error_message(self, mock_ctx: MagicMock):
+        """Test that timeout returns user-friendly error."""
+        mock_locator = MagicMock()
+        mock_locator.check = AsyncMock(side_effect=PlaywrightTimeout("timeout"))
+        mock_ctx.deps.page.get_by_role = MagicMock(return_value=mock_locator)
+
+        result = await check_element(mock_ctx, "Terms")
+
+        assert "Could not check" in result
+        assert "not interactable within timeout" in result
+
+
+class TestA11yScrollPage:
+    """Tests for scroll_page function."""
+
+    async def test_scroll_down(self, mock_ctx: MagicMock):
+        """Test scrolling down."""
+        mock_ctx.deps.page.evaluate = AsyncMock()
+
+        result = await scroll_page(mock_ctx, direction="down", amount=500)
+
+        mock_ctx.deps.page.evaluate.assert_called_once_with("window.scrollBy(0, 500)")
+        assert "Scrolled down by 500 pixels" in result
+
+    async def test_scroll_up(self, mock_ctx: MagicMock):
+        """Test scrolling up."""
+        mock_ctx.deps.page.evaluate = AsyncMock()
+
+        result = await scroll_page(mock_ctx, direction="up", amount=300)
+
+        mock_ctx.deps.page.evaluate.assert_called_once_with("window.scrollBy(0, -300)")
+        assert "Scrolled up by 300 pixels" in result
+
+
+class TestHtmlClickSelector:
+    """Tests for click_selector function."""
+
+    async def test_successful_click(self, mock_ctx: MagicMock):
+        """Test clicking by CSS selector."""
+        mock_ctx.deps.page.click = AsyncMock()
+
+        result = await click_selector(mock_ctx, "#submit-btn")
+
+        mock_ctx.deps.page.click.assert_called_once_with("#submit-btn", timeout=5000)
+        assert "Clicked element matching selector: #submit-btn" in result
+
+    async def test_timeout_returns_error_message(self, mock_ctx: MagicMock):
+        """Test that timeout returns user-friendly error."""
+        mock_ctx.deps.page.click = AsyncMock(side_effect=PlaywrightTimeout("timeout"))
+
+        result = await click_selector(mock_ctx, "#submit-btn")
+
+        assert "Could not click" in result
+        assert "not clickable within timeout" in result
+
+
+class TestHtmlFillInput:
+    """Tests for fill_input function."""
+
+    async def test_successful_fill(self, mock_ctx: MagicMock):
+        """Test filling input by CSS selector."""
+        mock_ctx.deps.page.fill = AsyncMock()
+
+        result = await fill_input(mock_ctx, "#username", "testuser")
+
+        mock_ctx.deps.page.fill.assert_called_once_with("#username", "testuser", timeout=5000)
+        assert "Filled input '#username'" in result
+        assert "testuser" in result
+
+    async def test_timeout_returns_error_message(self, mock_ctx: MagicMock):
+        """Test that timeout returns user-friendly error."""
+        mock_ctx.deps.page.fill = AsyncMock(side_effect=PlaywrightTimeout("timeout"))
+
+        result = await fill_input(mock_ctx, "#username", "testuser")
+
+        assert "Could not fill input" in result
+        assert "not editable within timeout" in result
+
+
+class TestHtmlGetPageText:
+    """Tests for get_page_text function."""
+
+    async def test_returns_page_text(self, mock_ctx: MagicMock):
+        """Test getting page text content."""
+        mock_ctx.deps.page.inner_text = AsyncMock(return_value="Page content here")
+
+        result = await get_page_text(mock_ctx)
+
+        mock_ctx.deps.page.inner_text.assert_called_once_with("body")
+        assert result == "Page content here"
+
+    async def test_truncates_long_text(self, mock_ctx: MagicMock):
+        """Test that long text is truncated."""
+        long_text = "x" * (MAX_PAGE_TEXT_LENGTH + 1000)
+        mock_ctx.deps.page.inner_text = AsyncMock(return_value=long_text)
+
+        result = await get_page_text(mock_ctx)
+
+        assert len(result) < len(long_text)
+        assert result.endswith("...[truncated]")
+
+
+class TestHtmlScrollToElement:
+    """Tests for scroll_to_element function."""
+
+    async def test_successful_scroll(self, mock_ctx: MagicMock):
+        """Test scrolling to element."""
+        mock_locator = MagicMock()
+        mock_locator.scroll_into_view_if_needed = AsyncMock()
+        mock_ctx.deps.page.locator = MagicMock(return_value=mock_locator)
+
+        result = await scroll_to_element(mock_ctx, "#target")
+
+        mock_ctx.deps.page.locator.assert_called_once_with("#target")
+        mock_locator.scroll_into_view_if_needed.assert_called_once_with(timeout=5000)
+        assert "Scrolled to '#target'" in result
+
+    async def test_timeout_returns_error_message(self, mock_ctx: MagicMock):
+        """Test that timeout returns user-friendly error."""
+        mock_locator = MagicMock()
+        mock_locator.scroll_into_view_if_needed = AsyncMock(
+            side_effect=PlaywrightTimeout("timeout")
+        )
+        mock_ctx.deps.page.locator = MagicMock(return_value=mock_locator)
+
+        result = await scroll_to_element(mock_ctx, "#target")
+
+        assert "Could not scroll" in result
+        assert "not found within timeout" in result

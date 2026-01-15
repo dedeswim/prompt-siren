@@ -51,7 +51,7 @@ def create_mock_task_result(
         sandbox_manager=mock_sandbox_manager,
         task_setup=mock_task_setup,
         start_url="http://localhost:3000",
-        captured_requests=captured_requests or [],
+        _captured_requests=captured_requests or [],
     )
 
     # Create mock run context

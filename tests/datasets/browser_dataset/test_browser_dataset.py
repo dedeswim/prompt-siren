@@ -7,8 +7,8 @@ from unittest.mock import MagicMock
 import pytest
 from prompt_siren.datasets.browser_dataset import (
     BrowserDatasetConfig,
-    ScreenshotBrowserDataset,
     create_screenshot_browser_dataset,
+    ScreenshotBrowserDataset,
 )
 from prompt_siren.datasets.browser_dataset.config import (
     BrowserContainerConfig,
