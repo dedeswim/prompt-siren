@@ -141,5 +141,8 @@ async def scroll_page(
     """
     page = ctx.deps.page
     scroll_y = amount if direction == "down" else -amount
-    await page.evaluate(f"window.scrollBy(0, {scroll_y})")
+    try:
+        await page.evaluate(f"window.scrollBy(0, {scroll_y})")
+    except PlaywrightTimeout:
+        return f"Could not scroll {direction}: page unresponsive within timeout"
     return f"Scrolled {direction} by {amount} pixels"

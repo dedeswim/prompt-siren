@@ -100,8 +100,8 @@ class BaseSiteConfig(BaseModel):
     def _get_image_spec(self, site_name: str | None = None) -> ImageSpec:
         """Get the appropriate image spec based on configuration.
 
-        If build_context is explicitly set, uses that. Otherwise, auto-detects
-        a pre-seeded build context based on site_name if provided.
+        If build_context is explicitly set, uses that (and fails if path doesn't exist).
+        Otherwise, auto-detects a pre-seeded build context based on site_name if provided.
 
         Args:
             site_name: Optional site name for auto-detecting build context
@@ -109,8 +109,12 @@ class BaseSiteConfig(BaseModel):
 
         Returns:
             BuildImageSpec if a valid build context is found, otherwise PullImageSpec.
+
+        Raises:
+            ValueError: If build_context is explicitly set but the path doesn't exist.
         """
         # Check explicit build_context first
+        explicitly_configured = self.build_context is not None
         build_path = self.build_context
 
         # Auto-detect build context based on site name if not explicitly set
@@ -126,8 +130,16 @@ class BaseSiteConfig(BaseModel):
                     context_path=str(build_path),
                     tag=f"prompt-siren/{safe_hostname}:latest",
                 )
+            # Explicitly configured paths must exist - fail fast
+            if explicitly_configured:
+                raise ValueError(
+                    f"Build context path {build_path} does not exist for {self.hostname}. "
+                    f"Either fix the path or remove build_context to use base image {self.container_image}."
+                )
+            # Auto-detected paths can fall back gracefully
             logger.warning(
-                "Build context path %s does not exist for %s, falling back to base image %s",
+                "Auto-detected build context path %s does not exist for %s, "
+                "falling back to base image %s",
                 build_path,
                 self.hostname,
                 self.container_image,
@@ -203,8 +215,8 @@ class BrowserDatasetConfig(BaseModel):
 
     Container Management:
         Follows the SWE-bench pattern:
-        - setup_batch(): Pulls/prepares all container images upfront
-        - setup_task(): Creates fresh browser + site containers per task
+        - create_batch_context(): Pulls/prepares all container images upfront
+        - create_task_context(): Creates fresh browser + site containers per task
         - Complete isolation between tasks (no shared state)
         - Supports true parallel execution
     """

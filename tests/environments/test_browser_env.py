@@ -562,3 +562,266 @@ class TestSetupPageWithCapture:
         assert page is mock_page
         assert captured == []
         mock_page.close.assert_not_called()
+
+
+class TestResetEnvState:
+    """Tests for reset_env_state method."""
+
+    async def test_closes_browser_connection(self, browser_env: BrowserEnvironment):
+        """Test that reset closes the old browser connection."""
+        from prompt_siren.environments.browser_env import BrowserEnvState
+
+        mock_old_browser = MagicMock()
+        mock_old_browser.close = AsyncMock()
+
+        mock_new_browser = MagicMock()
+        mock_new_page = MagicMock()
+        mock_new_page.route = AsyncMock()
+        mock_new_page.goto = AsyncMock()
+        mock_new_browser.new_page = AsyncMock(return_value=mock_new_page)
+
+        mock_playwright = MagicMock()
+        mock_playwright.chromium.connect_over_cdp = AsyncMock(return_value=mock_new_browser)
+
+        mock_sandbox_manager = MagicMock()
+        mock_sandbox_manager.destroy_sandbox = AsyncMock()
+        mock_sandbox_manager.create_sandbox = AsyncMock(return_value=MagicMock())
+
+        mock_task_setup = MagicMock()
+
+        env_state = BrowserEnvState(
+            page=MagicMock(),
+            browser=mock_old_browser,
+            playwright=mock_playwright,
+            sandbox_state=MagicMock(),
+            sandbox_manager=mock_sandbox_manager,
+            task_setup=mock_task_setup,
+            start_url="http://example.com",
+        )
+
+        await browser_env.reset_env_state(env_state)
+
+        mock_old_browser.close.assert_called_once()
+
+    async def test_destroys_old_containers(self, browser_env: BrowserEnvironment):
+        """Test that reset destroys old containers in background."""
+        import asyncio
+
+        from prompt_siren.environments.browser_env import BrowserEnvState
+
+        mock_old_sandbox_state = MagicMock()
+        mock_new_sandbox_state = MagicMock()
+
+        mock_new_browser = MagicMock()
+        mock_new_page = MagicMock()
+        mock_new_page.route = AsyncMock()
+        mock_new_page.goto = AsyncMock()
+        mock_new_browser.new_page = AsyncMock(return_value=mock_new_page)
+
+        mock_playwright = MagicMock()
+        mock_playwright.chromium.connect_over_cdp = AsyncMock(return_value=mock_new_browser)
+
+        mock_sandbox_manager = MagicMock()
+        mock_sandbox_manager.destroy_sandbox = AsyncMock()
+        mock_sandbox_manager.create_sandbox = AsyncMock(return_value=mock_new_sandbox_state)
+
+        mock_browser = MagicMock()
+        mock_browser.close = AsyncMock()
+
+        env_state = BrowserEnvState(
+            page=MagicMock(),
+            browser=mock_browser,
+            playwright=mock_playwright,
+            sandbox_state=mock_old_sandbox_state,
+            sandbox_manager=mock_sandbox_manager,
+            task_setup=MagicMock(),
+            start_url="http://example.com",
+        )
+
+        await browser_env.reset_env_state(env_state)
+        # Wait for fire-and-forget cleanup
+        await asyncio.sleep(0.1)
+
+        mock_sandbox_manager.destroy_sandbox.assert_called_once_with(mock_old_sandbox_state)
+
+    async def test_creates_fresh_containers(self, browser_env: BrowserEnvironment):
+        """Test that reset creates fresh containers."""
+        from prompt_siren.environments.browser_env import BrowserEnvState
+
+        mock_new_sandbox_state = MagicMock()
+        mock_task_setup = MagicMock()
+
+        mock_new_browser = MagicMock()
+        mock_new_page = MagicMock()
+        mock_new_page.route = AsyncMock()
+        mock_new_page.goto = AsyncMock()
+        mock_new_browser.new_page = AsyncMock(return_value=mock_new_page)
+
+        mock_playwright = MagicMock()
+        mock_playwright.chromium.connect_over_cdp = AsyncMock(return_value=mock_new_browser)
+
+        mock_sandbox_manager = MagicMock()
+        mock_sandbox_manager.destroy_sandbox = AsyncMock()
+        mock_sandbox_manager.create_sandbox = AsyncMock(return_value=mock_new_sandbox_state)
+
+        mock_browser = MagicMock()
+        mock_browser.close = AsyncMock()
+
+        env_state = BrowserEnvState(
+            page=MagicMock(),
+            browser=mock_browser,
+            playwright=mock_playwright,
+            sandbox_state=MagicMock(),
+            sandbox_manager=mock_sandbox_manager,
+            task_setup=mock_task_setup,
+            start_url="http://example.com",
+        )
+
+        new_state = await browser_env.reset_env_state(env_state)
+
+        mock_sandbox_manager.create_sandbox.assert_called_once_with(mock_task_setup)
+        assert new_state.sandbox_state is mock_new_sandbox_state
+
+    async def test_reconnects_browser_via_cdp(self, browser_env: BrowserEnvironment):
+        """Test that reset reconnects to browser via CDP."""
+        from prompt_siren.environments.browser_env import BrowserEnvState
+
+        mock_new_browser = MagicMock()
+        mock_new_page = MagicMock()
+        mock_new_page.route = AsyncMock()
+        mock_new_page.goto = AsyncMock()
+        mock_new_browser.new_page = AsyncMock(return_value=mock_new_page)
+
+        mock_playwright = MagicMock()
+        mock_playwright.chromium.connect_over_cdp = AsyncMock(return_value=mock_new_browser)
+
+        mock_sandbox_manager = MagicMock()
+        mock_sandbox_manager.destroy_sandbox = AsyncMock()
+        mock_sandbox_manager.create_sandbox = AsyncMock(return_value=MagicMock())
+
+        mock_browser = MagicMock()
+        mock_browser.close = AsyncMock()
+
+        env_state = BrowserEnvState(
+            page=MagicMock(),
+            browser=mock_browser,
+            playwright=mock_playwright,
+            sandbox_state=MagicMock(),
+            sandbox_manager=mock_sandbox_manager,
+            task_setup=MagicMock(),
+            start_url="http://example.com",
+        )
+
+        new_state = await browser_env.reset_env_state(env_state)
+
+        # Should connect via CDP on port 9222 (from browser_container_spec fixture)
+        mock_playwright.chromium.connect_over_cdp.assert_called_once_with("http://localhost:9222")
+        assert new_state.browser is mock_new_browser
+
+    async def test_navigates_to_start_url(self, browser_env: BrowserEnvironment):
+        """Test that reset navigates to the original start URL."""
+        from prompt_siren.environments.browser_env import BrowserEnvState
+
+        mock_new_browser = MagicMock()
+        mock_new_page = MagicMock()
+        mock_new_page.route = AsyncMock()
+        mock_new_page.goto = AsyncMock()
+        mock_new_browser.new_page = AsyncMock(return_value=mock_new_page)
+
+        mock_playwright = MagicMock()
+        mock_playwright.chromium.connect_over_cdp = AsyncMock(return_value=mock_new_browser)
+
+        mock_sandbox_manager = MagicMock()
+        mock_sandbox_manager.destroy_sandbox = AsyncMock()
+        mock_sandbox_manager.create_sandbox = AsyncMock(return_value=MagicMock())
+
+        mock_browser = MagicMock()
+        mock_browser.close = AsyncMock()
+
+        env_state = BrowserEnvState(
+            page=MagicMock(),
+            browser=mock_browser,
+            playwright=mock_playwright,
+            sandbox_state=MagicMock(),
+            sandbox_manager=mock_sandbox_manager,
+            task_setup=MagicMock(),
+            start_url="http://gitea.dev-forge.io/issues",
+        )
+
+        new_state = await browser_env.reset_env_state(env_state)
+
+        mock_new_page.goto.assert_called_once_with("http://gitea.dev-forge.io/issues")
+        assert new_state.start_url == "http://gitea.dev-forge.io/issues"
+
+    async def test_preserves_playwright_instance(self, browser_env: BrowserEnvironment):
+        """Test that reset reuses the existing Playwright instance."""
+        from prompt_siren.environments.browser_env import BrowserEnvState
+
+        mock_new_browser = MagicMock()
+        mock_new_page = MagicMock()
+        mock_new_page.route = AsyncMock()
+        mock_new_page.goto = AsyncMock()
+        mock_new_browser.new_page = AsyncMock(return_value=mock_new_page)
+
+        mock_playwright = MagicMock()
+        mock_playwright.chromium.connect_over_cdp = AsyncMock(return_value=mock_new_browser)
+
+        mock_sandbox_manager = MagicMock()
+        mock_sandbox_manager.destroy_sandbox = AsyncMock()
+        mock_sandbox_manager.create_sandbox = AsyncMock(return_value=MagicMock())
+
+        mock_browser = MagicMock()
+        mock_browser.close = AsyncMock()
+
+        env_state = BrowserEnvState(
+            page=MagicMock(),
+            browser=mock_browser,
+            playwright=mock_playwright,
+            sandbox_state=MagicMock(),
+            sandbox_manager=mock_sandbox_manager,
+            task_setup=MagicMock(),
+            start_url="http://example.com",
+        )
+
+        new_state = await browser_env.reset_env_state(env_state)
+
+        # Playwright instance should be preserved
+        assert new_state.playwright is mock_playwright
+
+    async def test_raises_if_no_ports_defined(self, mock_sandbox_manager: MagicMock):
+        """Test that reset raises error if browser spec has no ports."""
+        from prompt_siren.environments.browser_env import BrowserEnvState
+
+        # Create env with browser spec that has no ports
+        browser_spec_no_ports = ContainerSpec(
+            image_spec=PullImageSpec(tag="chromedp/headless-shell:latest"),
+            hostname="browser",
+            ports={},  # Empty ports
+        )
+        env = BrowserEnvironment(
+            name="test",
+            all_injection_ids=[],
+            sandbox_manager=mock_sandbox_manager,
+            browser_container_spec=browser_spec_no_ports,
+            site_container_specs={},
+            render_fn=_mock_render_fn,
+        )
+
+        mock_sandbox_manager.destroy_sandbox = AsyncMock()
+        mock_sandbox_manager.create_sandbox = AsyncMock(return_value=MagicMock())
+
+        mock_browser = MagicMock()
+        mock_browser.close = AsyncMock()
+
+        env_state = BrowserEnvState(
+            page=MagicMock(),
+            browser=mock_browser,
+            playwright=MagicMock(),
+            sandbox_state=MagicMock(),
+            sandbox_manager=mock_sandbox_manager,
+            task_setup=MagicMock(),
+            start_url="http://example.com",
+        )
+
+        with pytest.raises(RuntimeError, match="Browser container spec must have ports"):
+            await env.reset_env_state(env_state)

@@ -1,5 +1,5 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-"""Tests for browser tools (a11y_tools and html_tools)."""
+"""Tests for browser tools (a11y_tools, html_tools, and common)."""
 
 from unittest.mock import AsyncMock, MagicMock
 
@@ -12,6 +12,12 @@ from prompt_siren.datasets.browser_dataset.tools.a11y_tools import (
     fill_element,
     scroll_page,
     select_option,
+)
+from prompt_siren.datasets.browser_dataset.tools.common import (
+    go_back,
+    go_forward,
+    goto_url,
+    press_key,
 )
 from prompt_siren.datasets.browser_dataset.tools.html_tools import (
     _truncate as html_truncate,
@@ -231,6 +237,15 @@ class TestA11yScrollPage:
         mock_ctx.deps.page.evaluate.assert_called_once_with("window.scrollBy(0, -300)")
         assert "Scrolled up by 300 pixels" in result
 
+    async def test_timeout_returns_error_message(self, mock_ctx: MagicMock):
+        """Test that timeout returns user-friendly error."""
+        mock_ctx.deps.page.evaluate = AsyncMock(side_effect=PlaywrightTimeout("timeout"))
+
+        result = await scroll_page(mock_ctx, direction="down", amount=500)
+
+        assert "Could not scroll down" in result
+        assert "page unresponsive within timeout" in result
+
 
 class TestHtmlClickSelector:
     """Tests for click_selector function."""
@@ -327,3 +342,90 @@ class TestHtmlScrollToElement:
 
         assert "Could not scroll" in result
         assert "not found within timeout" in result
+
+
+class TestCommonPressKey:
+    """Tests for press_key function."""
+
+    async def test_successful_key_press(self, mock_ctx: MagicMock):
+        """Test pressing a key."""
+        mock_keyboard = MagicMock()
+        mock_keyboard.press = AsyncMock()
+        mock_ctx.deps.page.keyboard = mock_keyboard
+
+        result = await press_key(mock_ctx, "Enter")
+
+        mock_keyboard.press.assert_called_once_with("Enter")
+        assert "Pressed key: Enter" in result
+
+    async def test_press_special_key(self, mock_ctx: MagicMock):
+        """Test pressing a special key like ArrowDown."""
+        mock_keyboard = MagicMock()
+        mock_keyboard.press = AsyncMock()
+        mock_ctx.deps.page.keyboard = mock_keyboard
+
+        result = await press_key(mock_ctx, "ArrowDown")
+
+        mock_keyboard.press.assert_called_once_with("ArrowDown")
+        assert "Pressed key: ArrowDown" in result
+
+
+class TestCommonGotoUrl:
+    """Tests for goto_url function."""
+
+    async def test_successful_navigation(self, mock_ctx: MagicMock):
+        """Test navigating to a URL."""
+        mock_ctx.deps.page.goto = AsyncMock()
+        mock_ctx.deps.page.url = "https://example.com/page"
+
+        result = await goto_url(mock_ctx, "https://example.com/page")
+
+        mock_ctx.deps.page.goto.assert_called_once_with("https://example.com/page", timeout=30000)
+        assert "Navigated to: https://example.com/page" in result
+
+    async def test_navigation_returns_final_url(self, mock_ctx: MagicMock):
+        """Test that navigation returns the final URL (after redirects)."""
+        mock_ctx.deps.page.goto = AsyncMock()
+        # Simulate redirect - page.url differs from requested URL
+        mock_ctx.deps.page.url = "https://example.com/redirected"
+
+        result = await goto_url(mock_ctx, "https://example.com/original")
+
+        assert "https://example.com/redirected" in result
+
+    async def test_timeout_raises_exception(self, mock_ctx: MagicMock):
+        """Test that timeout raises PlaywrightTimeout (no error handling)."""
+        mock_ctx.deps.page.goto = AsyncMock(side_effect=PlaywrightTimeout("timeout"))
+
+        with pytest.raises(PlaywrightTimeout):
+            await goto_url(mock_ctx, "https://slow.example.com")
+
+
+class TestCommonGoBack:
+    """Tests for go_back function."""
+
+    async def test_successful_go_back(self, mock_ctx: MagicMock):
+        """Test going back in history."""
+        mock_ctx.deps.page.go_back = AsyncMock()
+        mock_ctx.deps.page.url = "https://example.com/previous"
+
+        result = await go_back(mock_ctx)
+
+        mock_ctx.deps.page.go_back.assert_called_once()
+        assert "Went back" in result
+        assert "https://example.com/previous" in result
+
+
+class TestCommonGoForward:
+    """Tests for go_forward function."""
+
+    async def test_successful_go_forward(self, mock_ctx: MagicMock):
+        """Test going forward in history."""
+        mock_ctx.deps.page.go_forward = AsyncMock()
+        mock_ctx.deps.page.url = "https://example.com/next"
+
+        result = await go_forward(mock_ctx)
+
+        mock_ctx.deps.page.go_forward.assert_called_once()
+        assert "Went forward" in result
+        assert "https://example.com/next" in result

@@ -6,8 +6,8 @@ with fresh containers created per task for complete isolation.
 
 Container Management:
     Follows the same pattern as SWE-bench/BashEnvironment:
-    - setup_batch(): Pulls/prepares all container images upfront
-    - setup_task(): Creates fresh browser + site containers per task
+    - create_batch_context(): Pulls/prepares all container images upfront
+    - create_task_context(): Creates fresh browser + site containers per task
     - Containers are cleaned up automatically when task context exits
 
     This provides true parallel execution support - each task gets its own
@@ -258,8 +258,8 @@ class BrowserEnvironment(
     """Browser environment with fresh containers per task.
 
     Follows the SWE-bench pattern:
-    - setup_batch(): Prepares all container images
-    - setup_task(): Creates fresh browser + site containers per task
+    - create_batch_context(): Prepares all container images
+    - create_task_context(): Creates fresh browser + site containers per task
     - Complete isolation between tasks (no shared state)
     - Supports true parallel execution
 
@@ -398,6 +398,12 @@ class BrowserEnvironment(
         """
         metadata = task.metadata
         if not isinstance(metadata, BrowserTaskMetadata):
+            logger.warning(
+                "Task %s has unexpected metadata type %s (expected BrowserTaskMetadata). "
+                "No site containers will be created for this task.",
+                task.id,
+                type(metadata).__name__,
+            )
             return []
 
         valid_sites = get_args(SiteName)
@@ -459,6 +465,13 @@ class BrowserEnvironment(
                 service_containers[site] = ContainerSetup(
                     name=site,
                     spec=self._site_container_specs[site],
+                )
+            else:
+                logger.warning(
+                    "Task %s requires site '%s' but no container spec is configured. "
+                    "Site will not be available during task execution.",
+                    task_id,
+                    site,
                 )
 
         # Sanitize task ID for network name
