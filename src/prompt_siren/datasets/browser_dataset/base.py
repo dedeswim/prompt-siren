@@ -22,6 +22,7 @@ from ...environments.browser_env import (
     BrowserTaskMetadata,
 )
 from ...sandbox_managers.abstract import AbstractSandboxManager
+from ...sandbox_managers.image_spec import BuildImageSpec, ImageBuildSpec
 from ...tasks import BenignTask, MaliciousTask, TaskCouple
 from ...types import InjectionAttacksDict, StrContentAttack
 from ..abstract import AbstractDataset
@@ -76,7 +77,7 @@ class BaseBrowserDataset(
     """
 
     name: str
-    _environment: BrowserEnvironment[OutputT]
+    _environment: BrowserEnvironment[OutputT] | None = None
     _benign_tasks: list[BenignTask[BrowserEnvState]] = field(default_factory=list)
     _malicious_tasks: list[MaliciousTask[BrowserEnvState]] = field(default_factory=list)
     _task_couples: list[TaskCouple[BrowserEnvState]] = field(default_factory=list)
@@ -91,6 +92,12 @@ class BaseBrowserDataset(
     def environment(
         self,
     ) -> AbstractEnvironment[BrowserEnvState, Any, OutputT, StrContentAttack]:
+        if self._environment is None:
+            raise RuntimeError(
+                "Cannot access environment: dataset was created for image building only "
+                "(sandbox_manager was None). Create the dataset with a sandbox_manager "
+                "to enable task execution."
+            )
         return self._environment
 
     @property
@@ -108,6 +115,30 @@ class BaseBrowserDataset(
     @property
     def task_couples(self) -> list[TaskCouple[BrowserEnvState]]:
         return self._task_couples
+
+    @classmethod
+    def get_image_build_specs(cls, config: BrowserDatasetConfig) -> list[ImageBuildSpec]:
+        """Return all image specifications needed by this dataset.
+
+        This classmethod is used by the build_images script to pre-build all Docker
+        images needed for browser tasks. It iterates through the site container
+        specs and returns ImageBuildSpec for sites that need building.
+
+        Args:
+            config: Browser dataset configuration specifying which sites to build.
+
+        Returns:
+            List of ImageBuildSpec objects for sites that need to be built
+            (excludes PullImageSpec sites that are pulled from registries).
+        """
+        # Get all site container specs from config and filter to only BuildImageSpec
+        # (skip PullImageSpec as those are pulled from registries)
+        site_specs = config.get_all_site_container_specs()
+        return [
+            container_spec.image_spec
+            for container_spec in site_specs.values()
+            if isinstance(container_spec.image_spec, BuildImageSpec)
+        ]
 
 
 def create_browser_environment(

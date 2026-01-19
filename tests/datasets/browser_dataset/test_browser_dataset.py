@@ -126,3 +126,16 @@ class TestScreenshotBrowserDataset:
 
         assert len(benign_ids) == len(set(benign_ids)), "Benign task IDs should be unique"
         assert len(malicious_ids) == len(set(malicious_ids)), "Malicious task IDs should be unique"
+
+
+class TestBrowserDatasetImageBuildingMode:
+    """Tests for browser dataset image building."""
+
+    def test_get_image_build_specs_works_without_sandbox_manager(self) -> None:
+        """Verify image specs can be retrieved without instantiating full dataset."""
+        config = BrowserDatasetConfig()
+        # This is a classmethod, doesn't need an instance
+        specs = ScreenshotBrowserDataset.get_image_build_specs(config)
+
+        # Should return at least some specs for configured sites
+        assert isinstance(specs, list)

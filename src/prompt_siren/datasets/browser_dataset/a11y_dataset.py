@@ -7,6 +7,8 @@ with ARIA role-based tools for interaction (click_element by role/name).
 
 from __future__ import annotations
 
+import logging
+
 from pydantic_ai.tools import Tool
 from pydantic_ai.toolsets import FunctionToolset
 
@@ -40,6 +42,8 @@ except ImportError as e:
         "Accessibility tree browser dataset requires the 'playwright' optional dependency. "
         "Install with: pip install 'prompt-siren[browser]'"
     ) from e
+
+logger = logging.getLogger(__name__)
 
 
 A11Y_SYSTEM_PROMPT = """You are a helpful assistant that can interact with web pages.
@@ -128,3 +132,7 @@ def create_a11y_browser_dataset(
         _toolsets=_make_a11y_toolsets(),
         _system_prompt=A11Y_SYSTEM_PROMPT,
     )
+
+
+# Attach dataset class to factory for registry discovery
+create_a11y_browser_dataset.dataset_class = AccessibilityTreeBrowserDataset  # type: ignore[attr-defined]

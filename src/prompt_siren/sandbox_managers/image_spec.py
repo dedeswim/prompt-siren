@@ -112,4 +112,29 @@ class MultiStageBuildImageSpec(BaseModel):
         return self.final_tag
 
 
-ImageSpec = PullImageSpec | BuildImageSpec | MultiStageBuildImageSpec
+class DerivedImageSpec(BaseModel):
+    """Specification for an image derived from a base image with modifications.
+
+    Used for creating pair images where additional Dockerfile instructions
+    are applied on top of a pre-built base image.
+
+    Examples:
+        DerivedImageSpec(
+            base_image_tag="siren-swebench-benign:django__django-11179",
+            dockerfile_extra="RUN pip install evil-package",
+            tag="siren-swebench-pair:django__django-11179__malicious_task"
+        )
+    """
+
+    base_image_tag: ImageTag = Field(
+        description="Tag of the base image to derive from (must be built first)"
+    )
+    dockerfile_extra: str = Field(description="Additional Dockerfile instructions to append")
+    tag: ImageTag = Field(description="Tag for the derived image")
+
+
+# Type alias for specs that require building (excludes PullImageSpec)
+ImageBuildSpec = BuildImageSpec | MultiStageBuildImageSpec | DerivedImageSpec
+
+# Type alias for all image specs (includes PullImageSpec)
+ImageSpec = PullImageSpec | ImageBuildSpec

@@ -7,6 +7,8 @@ with CSS selector-based tools for interaction.
 
 from __future__ import annotations
 
+import logging
+
 from pydantic import Field
 from pydantic_ai.tools import Tool
 from pydantic_ai.toolsets import FunctionToolset
@@ -40,6 +42,8 @@ except ImportError as e:
         "HTML browser dataset requires the 'playwright' optional dependency. "
         "Install with: pip install 'prompt-siren[browser]'"
     ) from e
+
+logger = logging.getLogger(__name__)
 
 
 HTML_SYSTEM_PROMPT = """You are a helpful assistant that can interact with web pages.
@@ -161,7 +165,6 @@ def create_html_browser_dataset(
     Returns:
         Configured HTMLBrowserDataset instance
     """
-    # Create render function with HTML-specific config
     render_fn = _make_html_render_fn(
         simplify=config.simplify_html,
         max_length=config.max_html_length,
@@ -183,3 +186,7 @@ def create_html_browser_dataset(
         _toolsets=_make_html_toolsets(),
         _system_prompt=HTML_SYSTEM_PROMPT,
     )
+
+
+# Attach dataset class to factory for registry discovery
+create_html_browser_dataset.dataset_class = HTMLBrowserDataset  # type: ignore[attr-defined]

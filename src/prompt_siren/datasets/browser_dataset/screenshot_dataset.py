@@ -7,6 +7,8 @@ coordinate-based tools for interaction (click at x, y).
 
 from __future__ import annotations
 
+import logging
+
 from pydantic_ai.messages import BinaryContent
 from pydantic_ai.tools import Tool
 from pydantic_ai.toolsets import FunctionToolset
@@ -31,6 +33,8 @@ except ImportError as e:
         "Screenshot browser dataset requires the 'playwright' optional dependency. "
         "Install with: pip install 'prompt-siren[browser]'"
     ) from e
+
+logger = logging.getLogger(__name__)
 
 
 SCREENSHOT_SYSTEM_PROMPT = """You are a helpful assistant that can interact with web pages.
@@ -109,3 +113,7 @@ def create_screenshot_browser_dataset(
         _toolsets=_make_screenshot_toolsets(),
         _system_prompt=SCREENSHOT_SYSTEM_PROMPT,
     )
+
+
+# Attach dataset class to factory for registry discovery
+create_screenshot_browser_dataset.dataset_class = ScreenshotBrowserDataset  # type: ignore[attr-defined]
