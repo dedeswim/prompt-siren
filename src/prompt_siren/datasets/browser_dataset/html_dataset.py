@@ -154,17 +154,28 @@ class HTMLBrowserDataset(BaseBrowserDataset[str]):
 
 def create_html_browser_dataset(
     config: HTMLDatasetConfig,
-    sandbox_manager: AbstractSandboxManager,
+    sandbox_manager: AbstractSandboxManager | None,
 ) -> HTMLBrowserDataset:
     """Factory function to create an HTML browser dataset.
 
     Args:
         config: Configuration for the browser dataset
-        sandbox_manager: Sandbox manager for container lifecycle
+        sandbox_manager: Sandbox manager for container lifecycle.
+            Required for browser dataset - use HTMLBrowserDataset.get_image_build_specs()
+            for image building without instantiation.
 
     Returns:
         Configured HTMLBrowserDataset instance
+
+    Raises:
+        ValueError: If sandbox_manager is None
     """
+    if sandbox_manager is None:
+        raise ValueError(
+            "Browser dataset requires a sandbox_manager for container orchestration. "
+            "For image building, use HTMLBrowserDataset.get_image_build_specs(config) instead."
+        )
+
     render_fn = _make_html_render_fn(
         simplify=config.simplify_html,
         max_length=config.max_html_length,
