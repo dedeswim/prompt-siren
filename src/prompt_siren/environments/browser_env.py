@@ -23,7 +23,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, Generic, get_args, Literal, TypedDict, TypeVar
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, HttpUrl
 from typing_extensions import Self
 
 try:
@@ -66,7 +66,7 @@ def _fire_and_forget(coro: Coroutine[Any, Any, Any]) -> None:
 
     Properly tracks the task to:
     - Prevent garbage collection before completion
-    - Log any errors that occur
+    - Log any errors that occur (errors are logged but not propagated)
     - Automatically clean up when done
     """
     task = asyncio.create_task(coro)
@@ -78,7 +78,11 @@ def _fire_and_forget(coro: Coroutine[Any, Any, Any]) -> None:
             return
         exc = t.exception()
         if exc is not None:
-            logger.warning(f"Background task failed: {exc}", exc_info=exc)
+            logger.error(
+                "Background task failed: %s. This may cause resource leaks.",
+                exc,
+                exc_info=exc,
+            )
 
     task.add_done_callback(_on_done)
 
@@ -136,12 +140,19 @@ async def apply_injections(
     This modifies DOM text nodes to replace placeholders with attack content.
     Used by dataset render functions to inject attack payloads before rendering.
 
+    Placeholders use the format ``{vector_id}`` where ``vector_id`` is the key
+    in the attacks dictionary. For example, if attacks contains
+    ``{"gitea_issue_body": StrContentAttack(content="malicious")}``, then
+    all occurrences of ``{gitea_issue_body}`` in DOM text nodes will be
+    replaced with ``malicious``.
+
     Note: Only text nodes are modified. Placeholders in HTML attributes or
     script content will not be replaced.
 
     Args:
         page: Playwright page to modify
-        attacks: Injection attacks to apply (does nothing if None or empty)
+        attacks: Injection attacks to apply, mapping vector IDs to attack content.
+            Does nothing if None or empty.
 
     Raises:
         InjectionError: If JavaScript evaluation fails (e.g., page navigated away)
@@ -210,9 +221,9 @@ class BrowserEnvState:
     _captured_requests: list[CapturedRequest] = field(default_factory=list)
 
     @property
-    def captured_requests(self) -> Sequence[CapturedRequest]:
-        """Read-only view of captured requests for attack evaluation."""
-        return self._captured_requests
+    def captured_requests(self) -> tuple[CapturedRequest, ...]:
+        """Read-only tuple of captured requests for attack evaluation."""
+        return tuple(self._captured_requests)
 
     @property
     def browser_container_id(self) -> ContainerID:
@@ -247,8 +258,8 @@ class BrowserTaskMetadata(BaseModel):
 
     sites: list[SiteName] = Field(min_length=1)
     """Sites this task interacts with (at least one required)."""
-    start_url: str
-    """Starting URL for this task."""
+    start_url: HttpUrl
+    """Starting URL for this task (validated as HTTP/HTTPS URL)."""
 
 
 class BrowserEnvironment(
@@ -421,16 +432,16 @@ class BrowserEnvironment(
         """Extract valid sites from a single task's metadata.
 
         Returns sites in the order specified in metadata, filtered to valid SiteNames.
+
+        Raises:
+            TypeError: If task metadata is not BrowserTaskMetadata.
         """
         metadata = task.metadata
         if not isinstance(metadata, BrowserTaskMetadata):
-            logger.warning(
-                "Task %s has unexpected metadata type %s (expected BrowserTaskMetadata). "
-                "No site containers will be created for this task.",
-                task.id,
-                type(metadata).__name__,
+            raise TypeError(
+                f"Task {task.id} has unexpected metadata type {type(metadata).__name__} "
+                f"(expected BrowserTaskMetadata). This indicates a bug in task definition."
             )
-            return []
 
         valid_sites = get_args(SiteName)
         return [site for site in metadata.sites if site in valid_sites]
@@ -493,11 +504,9 @@ class BrowserEnvironment(
                     spec=self._site_container_specs[site],
                 )
             else:
-                logger.warning(
-                    "Task %s requires site '%s' but no container spec is configured. "
-                    "Site will not be available during task execution.",
-                    task_id,
-                    site,
+                raise ValueError(
+                    f"Task {task_id} requires site '{site}' but no container spec is configured. "
+                    f"Available sites: {list(self._site_container_specs.keys())}"
                 )
 
         # Sanitize task ID for network name
@@ -524,7 +533,7 @@ class BrowserEnvironment(
         metadata = actual_task.metadata
         if not isinstance(metadata, BrowserTaskMetadata):
             raise ValueError(f"Task {actual_task.id} must have BrowserTaskMetadata")
-        return metadata.start_url
+        return str(metadata.start_url)
 
     @asynccontextmanager
     async def create_batch_context(

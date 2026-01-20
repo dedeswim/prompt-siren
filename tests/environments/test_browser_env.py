@@ -17,6 +17,7 @@ from prompt_siren.sandbox_managers.image_spec import PullImageSpec
 from prompt_siren.sandbox_managers.sandbox_task_setup import ContainerSpec
 from prompt_siren.tasks import BenignTask, MaliciousTask, TaskCouple
 from prompt_siren.types import StrContentAttack
+from pydantic import HttpUrl
 
 pytestmark = pytest.mark.anyio
 
@@ -161,7 +162,9 @@ class TestGetSitesFromTask:
             id="test_task",
             prompt="Do something",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["gitea"], start_url="http://gitea.dev-forge.io"),
+            metadata=BrowserTaskMetadata(
+                sites=["gitea"], start_url=HttpUrl("http://gitea.dev-forge.io")
+            ),
         )
 
         result = browser_env._get_sites_from_task(task)
@@ -175,7 +178,7 @@ class TestGetSitesFromTask:
             prompt="Do something across sites",
             evaluators={},
             metadata=BrowserTaskMetadata(
-                sites=["gitea", "answer"], start_url="http://gitea.dev-forge.io"
+                sites=["gitea", "answer"], start_url=HttpUrl("http://gitea.dev-forge.io")
             ),
         )
 
@@ -190,14 +193,16 @@ class TestGetSitesFromTask:
             id="benign_task",
             prompt="Do something",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["gitea"], start_url="http://gitea.dev-forge.io"),
+            metadata=BrowserTaskMetadata(
+                sites=["gitea"], start_url=HttpUrl("http://gitea.dev-forge.io")
+            ),
         )
         malicious = MaliciousTask(
             id="malicious_task",
             goal="Attack",
             evaluators={},
             metadata=BrowserTaskMetadata(
-                sites=["answer"], start_url="http://answers.dev-community.io"
+                sites=["answer"], start_url=HttpUrl("http://answers.dev-community.io")
             ),
         )
         couple = TaskCouple(benign=benign, malicious=malicious)
@@ -213,14 +218,16 @@ class TestGetSitesFromTask:
             id="benign_task",
             prompt="Do something",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["gitea"], start_url="http://gitea.dev-forge.io"),
+            metadata=BrowserTaskMetadata(
+                sites=["gitea"], start_url=HttpUrl("http://gitea.dev-forge.io")
+            ),
         )
         malicious = MaliciousTask(
             id="malicious_task",
             goal="Attack across sites",
             evaluators={},
             metadata=BrowserTaskMetadata(
-                sites=["answer", "wikijs"], start_url="http://answers.dev-community.io"
+                sites=["answer", "wikijs"], start_url=HttpUrl("http://answers.dev-community.io")
             ),
         )
         couple = TaskCouple(benign=benign, malicious=malicious)
@@ -236,13 +243,17 @@ class TestGetSitesFromTask:
             id="benign_task",
             prompt="Do something",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["gitea"], start_url="http://gitea.dev-forge.io"),
+            metadata=BrowserTaskMetadata(
+                sites=["gitea"], start_url=HttpUrl("http://gitea.dev-forge.io")
+            ),
         )
         malicious = MaliciousTask(
             id="malicious_task",
             goal="Attack",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["gitea"], start_url="http://gitea.dev-forge.io"),
+            metadata=BrowserTaskMetadata(
+                sites=["gitea"], start_url=HttpUrl("http://gitea.dev-forge.io")
+            ),
         )
         couple = TaskCouple(benign=benign, malicious=malicious)
 
@@ -259,14 +270,16 @@ class TestGetSitesFromTask:
             id="benign_task",
             prompt="Do something",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["gitea"], start_url="http://gitea.dev-forge.io"),
+            metadata=BrowserTaskMetadata(
+                sites=["gitea"], start_url=HttpUrl("http://gitea.dev-forge.io")
+            ),
         )
         malicious = MaliciousTask(
             id="malicious_task",
             goal="Attack",
             evaluators={},
             metadata=BrowserTaskMetadata(
-                sites=["answer"], start_url="http://answers.dev-community.io"
+                sites=["answer"], start_url=HttpUrl("http://answers.dev-community.io")
             ),
         )
         couple = TaskCouple(benign=benign, malicious=malicious)
@@ -283,7 +296,7 @@ class TestGetSitesFromTask:
             prompt="Do something across sites",
             evaluators={},
             metadata=BrowserTaskMetadata(
-                sites=["answer", "gitea"], start_url="http://answers.dev-community.io"
+                sites=["answer", "gitea"], start_url=HttpUrl("http://answers.dev-community.io")
             ),
         )
 
@@ -302,7 +315,9 @@ class TestCreateTaskSetup:
             id="gitea_find_issue",
             prompt="Find the issue",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["gitea"], start_url="http://gitea.dev-forge.io"),
+            metadata=BrowserTaskMetadata(
+                sites=["gitea"], start_url=HttpUrl("http://gitea.dev-forge.io")
+            ),
         )
 
         setup = browser_env._create_task_setup(task)
@@ -321,7 +336,7 @@ class TestCreateTaskSetup:
             prompt="Do something across sites",
             evaluators={},
             metadata=BrowserTaskMetadata(
-                sites=["gitea", "answer"], start_url="http://gitea.dev-forge.io"
+                sites=["gitea", "answer"], start_url=HttpUrl("http://gitea.dev-forge.io")
             ),
         )
 
@@ -338,14 +353,16 @@ class TestCreateTaskSetup:
             id="benign_task",
             prompt="Do something",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["gitea"], start_url="http://gitea.dev-forge.io"),
+            metadata=BrowserTaskMetadata(
+                sites=["gitea"], start_url=HttpUrl("http://gitea.dev-forge.io")
+            ),
         )
         malicious = MaliciousTask(
             id="malicious_task",
             goal="Attack",
             evaluators={},
             metadata=BrowserTaskMetadata(
-                sites=["answer"], start_url="http://answers.dev-community.io"
+                sites=["answer"], start_url=HttpUrl("http://answers.dev-community.io")
             ),
         )
         couple = TaskCouple(benign=benign, malicious=malicious)
@@ -364,13 +381,17 @@ class TestCreateTaskSetup:
             id="benign/task",
             prompt="Do something",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["gitea"], start_url="http://gitea.dev-forge.io"),
+            metadata=BrowserTaskMetadata(
+                sites=["gitea"], start_url=HttpUrl("http://gitea.dev-forge.io")
+            ),
         )
         malicious = MaliciousTask(
             id="malicious:task",
             goal="Attack",
             evaluators={},
-            metadata=BrowserTaskMetadata(sites=["gitea"], start_url="http://gitea.dev-forge.io"),
+            metadata=BrowserTaskMetadata(
+                sites=["gitea"], start_url=HttpUrl("http://gitea.dev-forge.io")
+            ),
         )
         couple = TaskCouple(benign=benign, malicious=malicious)
 
@@ -382,23 +403,20 @@ class TestCreateTaskSetup:
         assert "/" not in setup.network_config.name
         assert setup.network_config.name == "browser-net-benign-task-malicious-task"
 
-    def test_skips_unknown_site_containers(self, browser_env: BrowserEnvironment):
-        """Test that unknown sites don't cause container creation errors."""
+    def test_raises_for_unknown_site_containers(self, browser_env: BrowserEnvironment):
+        """Test that unknown sites raise ValueError."""
         # wikijs is not in our site_container_specs fixture
         task = BenignTask(
             id="wiki_task",
             prompt="Do something on wiki",
             evaluators={},
             metadata=BrowserTaskMetadata(
-                sites=["gitea", "wikijs"], start_url="http://gitea.dev-forge.io"
+                sites=["gitea", "wikijs"], start_url=HttpUrl("http://gitea.dev-forge.io")
             ),
         )
 
-        setup = browser_env._create_task_setup(task)
-
-        # Only gitea should be in service containers (wikijs not configured)
-        assert "gitea" in setup.service_containers
-        assert "wikijs" not in setup.service_containers
+        with pytest.raises(ValueError, match="requires site 'wikijs' but no container spec"):
+            browser_env._create_task_setup(task)
 
 
 class TestApplyInjections:
@@ -509,8 +527,8 @@ class TestFireAndForget:
 
             # Task should be removed from tracking
             assert len(_background_tasks) == initial_count
-            # Error should be logged
-            mock_logger.warning.assert_called_once()
+            # Error should be logged at error level (not warning)
+            mock_logger.error.assert_called_once()
 
     async def test_cancelled_tasks_are_handled_gracefully(self):
         """Test that cancelled tasks don't cause errors."""

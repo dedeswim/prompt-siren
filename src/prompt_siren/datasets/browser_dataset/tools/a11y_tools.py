@@ -7,7 +7,7 @@ snapshots and interact using ARIA roles and accessible names.
 
 from typing import Literal
 
-from playwright.async_api import TimeoutError as PlaywrightTimeout
+from playwright._impl._api_structures import AriaRole
 from pydantic_ai import RunContext
 
 from ....environments.browser_env import BrowserEnvState
@@ -15,7 +15,7 @@ from ....environments.browser_env import BrowserEnvState
 
 async def click_element(
     ctx: RunContext[BrowserEnvState],
-    role: str,
+    role: AriaRole,
     name: str | None = None,
 ) -> str:
     """Click an element by its ARIA role and accessible name.
@@ -29,11 +29,8 @@ async def click_element(
         Status message describing the click action
     """
     page = ctx.deps.page
-    locator = page.get_by_role(role, name=name) if name else page.get_by_role(role)  # type: ignore[arg-type]
-    try:
-        await locator.click(timeout=5000)
-    except PlaywrightTimeout:
-        return f"Could not click {role} (name={name}): element not found or not clickable within timeout"
+    locator = page.get_by_role(role, name=name) if name else page.get_by_role(role)
+    await locator.click(timeout=5000)
     name_part = f" with name '{name}'" if name else ""
     return f"Clicked {role}{name_part}"
 
@@ -47,7 +44,7 @@ def _truncate(text: str, max_len: int = 50) -> str:
 
 async def fill_element(
     ctx: RunContext[BrowserEnvState],
-    role: str,
+    role: AriaRole,
     value: str,
     name: str | None = None,
 ) -> str:
@@ -63,13 +60,8 @@ async def fill_element(
         Status message
     """
     page = ctx.deps.page
-    locator = page.get_by_role(role, name=name) if name else page.get_by_role(role)  # type: ignore[arg-type]
-    try:
-        await locator.fill(value, timeout=5000)
-    except PlaywrightTimeout:
-        return (
-            f"Could not fill {role} (name={name}): element not found or not editable within timeout"
-        )
+    locator = page.get_by_role(role, name=name) if name else page.get_by_role(role)
+    await locator.fill(value, timeout=5000)
     name_part = f" '{name}'" if name else ""
     return f"Filled {role}{name_part} with: {_truncate(value)}"
 
@@ -90,10 +82,7 @@ async def select_option(
         Status message
     """
     page = ctx.deps.page
-    try:
-        await page.get_by_role("combobox", name=name).select_option(option, timeout=5000)
-    except PlaywrightTimeout:
-        return f"Could not select '{option}' from '{name}': element not found or not selectable within timeout"
+    await page.get_by_role("combobox", name=name).select_option(option, timeout=5000)
     return f"Selected '{option}' from '{name}'"
 
 
@@ -113,14 +102,10 @@ async def check_element(
         Status message
     """
     page = ctx.deps.page
-    action = "check" if checked else "uncheck"
-    try:
-        if checked:
-            await page.get_by_role("checkbox", name=name).check(timeout=5000)
-        else:
-            await page.get_by_role("checkbox", name=name).uncheck(timeout=5000)
-    except PlaywrightTimeout:
-        return f"Could not {action} checkbox '{name}': element not found or not interactable within timeout"
+    if checked:
+        await page.get_by_role("checkbox", name=name).check(timeout=5000)
+    else:
+        await page.get_by_role("checkbox", name=name).uncheck(timeout=5000)
     return f"{'Checked' if checked else 'Unchecked'} checkbox '{name}'"
 
 
@@ -141,8 +126,5 @@ async def scroll_page(
     """
     page = ctx.deps.page
     scroll_y = amount if direction == "down" else -amount
-    try:
-        await page.evaluate(f"window.scrollBy(0, {scroll_y})")
-    except PlaywrightTimeout:
-        return f"Could not scroll {direction}: page unresponsive within timeout"
+    await page.evaluate(f"window.scrollBy(0, {scroll_y})")
     return f"Scrolled {direction} by {amount} pixels"

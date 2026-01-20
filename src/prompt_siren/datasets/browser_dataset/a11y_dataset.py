@@ -145,5 +145,6 @@ def create_a11y_browser_dataset(
     )
 
 
-# Attach dataset class to factory for registry discovery
-create_a11y_browser_dataset.dataset_class = AccessibilityTreeBrowserDataset  # type: ignore[attr-defined]
+# Entry point tuple: (factory_fn, dataset_class)
+# AccessibilityTreeBrowserDataset implements ImageBuildableDataset via BaseBrowserDataset
+a11y_entry = (create_a11y_browser_dataset, AccessibilityTreeBrowserDataset)

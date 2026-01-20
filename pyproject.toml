@@ -64,11 +64,11 @@ file = "prompt_siren.attacks.dict_attack:create_dict_attack_from_file"
 mini-goat = "prompt_siren.attacks.mini_goat_attack:create_mini_goat_attack"
 
 [project.entry-points."prompt_siren.datasets"]
-agentdojo = "prompt_siren.datasets.agentdojo_dataset:create_agentdojo_dataset"
-swebench = "prompt_siren.datasets.swebench_dataset:create_swebench_dataset"
-browser-screenshot = "prompt_siren.datasets.browser_dataset:create_screenshot_browser_dataset"
-browser-a11y = "prompt_siren.datasets.browser_dataset:create_a11y_browser_dataset"
-browser-html = "prompt_siren.datasets.browser_dataset:create_html_browser_dataset"
+agentdojo = "prompt_siren.datasets.agentdojo_dataset:agentdojo_entry"
+swebench = "prompt_siren.datasets.swebench_dataset:swebench_entry"
+browser-screenshot = "prompt_siren.datasets.browser_dataset:screenshot_entry"
+browser-a11y = "prompt_siren.datasets.browser_dataset:a11y_entry"
+browser-html = "prompt_siren.datasets.browser_dataset:html_entry"
 
 [project.entry-points."prompt_siren.sandbox_managers"]
 local-docker = "prompt_siren.sandbox_managers.docker:create_docker_sandbox_manager"

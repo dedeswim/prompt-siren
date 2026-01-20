@@ -126,5 +126,6 @@ def create_screenshot_browser_dataset(
     )
 
 
-# Attach dataset class to factory for registry discovery
-create_screenshot_browser_dataset.dataset_class = ScreenshotBrowserDataset  # type: ignore[attr-defined]
+# Entry point tuple: (factory_fn, dataset_class)
+# ScreenshotBrowserDataset implements ImageBuildableDataset via BaseBrowserDataset
+screenshot_entry = (create_screenshot_browser_dataset, ScreenshotBrowserDataset)

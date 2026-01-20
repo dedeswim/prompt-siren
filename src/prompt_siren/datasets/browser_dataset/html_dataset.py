@@ -199,5 +199,6 @@ def create_html_browser_dataset(
     )
 
 
-# Attach dataset class to factory for registry discovery
-create_html_browser_dataset.dataset_class = HTMLBrowserDataset  # type: ignore[attr-defined]
+# Entry point tuple: (factory_fn, dataset_class)
+# HTMLBrowserDataset implements ImageBuildableDataset via BaseBrowserDataset
+html_entry = (create_html_browser_dataset, HTMLBrowserDataset)

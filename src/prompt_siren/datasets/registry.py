@@ -8,7 +8,7 @@ dynamic dataset creation with type safety and optional sandbox manager context.
 import importlib.metadata
 import logging
 from collections.abc import Callable
-from typing import Protocol, TypeAlias, TypeVar
+from typing import Any, Protocol, runtime_checkable, TypeAlias, TypeVar
 
 from pydantic import BaseModel
 
@@ -25,7 +25,11 @@ ConfigT = TypeVar("ConfigT", bound=BaseModel)
 # Factories accept an optional sandbox manager for datasets that need container support
 DatasetFactory: TypeAlias = Callable[[ConfigT, AbstractSandboxManager | None], AbstractDataset]
 
+# Type alias for dataset entry points - tuple of (factory_fn, dataset_class)
+DatasetEntry: TypeAlias = tuple[DatasetFactory[Any], type[AbstractDataset]]
 
+
+@runtime_checkable
 class ImageBuildableDataset(Protocol):
     """Protocol for dataset classes that support image building.
 
@@ -54,8 +58,9 @@ _image_buildable_load_error: Exception | None = None
 def _load_image_buildable_classes() -> None:
     """Load dataset classes from entry points.
 
-    Looks for a `dataset_class` attribute on each factory function loaded
-    from the prompt_siren.datasets entry point group.
+    Entry points must return a tuple of (factory_fn, dataset_class).
+    If the dataset_class implements ImageBuildableDataset protocol,
+    it is registered for image building.
     """
     global _image_buildable_classes_loaded, _image_buildable_load_error
     if _image_buildable_classes_loaded:
@@ -67,9 +72,17 @@ def _load_image_buildable_classes() -> None:
             if ep.name in _image_buildable_classes:
                 continue
             try:
-                factory = ep.load()
-                if hasattr(factory, "dataset_class"):
-                    _image_buildable_classes[ep.name] = factory.dataset_class
+                entry = ep.load()
+                # Entry must be a tuple of (factory, dataset_class)
+                if not isinstance(entry, tuple) or len(entry) != 2:
+                    logger.warning(
+                        f"Dataset entry point '{ep.name}' must return a tuple of "
+                        "(factory_fn, dataset_class)"
+                    )
+                    continue
+                _, dataset_class = entry
+                if issubclass(dataset_class, ImageBuildableDataset):
+                    _image_buildable_classes[ep.name] = dataset_class
             except ImportError as e:
                 # Expected for optional dependencies - log at debug level
                 logger.debug(f"Skipping dataset '{ep.name}': missing dependency: {e}")

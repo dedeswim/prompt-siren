@@ -8,8 +8,8 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Discriminator, Field, Tag
-from typing_extensions import assert_never
+from pydantic import BaseModel, Discriminator, Field, model_validator, Tag
+from typing_extensions import assert_never, Self
 
 from ...environments.browser_env import SiteName
 from ...sandbox_managers.image_spec import BuildImageSpec, ImageSpec, PullImageSpec, SeederFn
@@ -348,6 +348,22 @@ class BrowserDatasetConfig(BaseModel):
                 return self.classifieds
             case _:
                 assert_never(site_name)
+
+    @model_validator(mode="after")
+    def check_unique_hostnames(self) -> Self:
+        """Validate that all site hostnames are unique."""
+        hostnames = [
+            self.gitea.hostname,
+            self.answer.hostname,
+            self.wikijs.hostname,
+            self.classifieds.hostname,
+        ]
+        if len(hostnames) != len(set(hostnames)):
+            duplicates = [h for h in hostnames if hostnames.count(h) > 1]
+            raise ValueError(
+                f"Site hostnames must be unique. Duplicates: {sorted(set(duplicates))}"
+            )
+        return self
 
     def get_all_site_container_specs(self) -> dict[str, ContainerSpec]:
         """Get container specs for all sites.

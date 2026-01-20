@@ -337,5 +337,6 @@ def create_swebench_dataset(
     )
 
 
-# Attach dataset class to factory for registry discovery
-create_swebench_dataset.dataset_class = SwebenchDataset  # type: ignore[attr-defined]
+# Entry point tuple: (factory_fn, dataset_class)
+# SwebenchDataset implements ImageBuildableDataset via get_image_build_specs classmethod
+swebench_entry = (create_swebench_dataset, SwebenchDataset)

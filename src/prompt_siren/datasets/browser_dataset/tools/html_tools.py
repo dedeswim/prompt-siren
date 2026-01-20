@@ -5,7 +5,6 @@ These tools are designed for agents that receive HTML content and
 interact using CSS selectors.
 """
 
-from playwright.async_api import TimeoutError as PlaywrightTimeout
 from pydantic_ai import RunContext
 
 from ....environments.browser_env import BrowserEnvState
@@ -34,10 +33,7 @@ async def click_selector(
         Status message describing the click action
     """
     page = ctx.deps.page
-    try:
-        await page.click(selector, timeout=5000)
-    except PlaywrightTimeout:
-        return f"Could not click selector '{selector}': element not found or not clickable within timeout"
+    await page.click(selector, timeout=5000)
     return f"Clicked element matching selector: {selector}"
 
 
@@ -57,12 +53,7 @@ async def fill_input(
         Status message describing the fill action
     """
     page = ctx.deps.page
-    try:
-        await page.fill(selector, value, timeout=5000)
-    except PlaywrightTimeout:
-        return (
-            f"Could not fill input '{selector}': element not found or not editable within timeout"
-        )
+    await page.fill(selector, value, timeout=5000)
     return f"Filled input '{selector}' with: {_truncate(value)}"
 
 
@@ -98,8 +89,5 @@ async def scroll_to_element(
         Status message
     """
     page = ctx.deps.page
-    try:
-        await page.locator(selector).scroll_into_view_if_needed(timeout=5000)
-    except PlaywrightTimeout:
-        return f"Could not scroll to '{selector}': element not found within timeout"
+    await page.locator(selector).scroll_into_view_if_needed(timeout=5000)
     return f"Scrolled to '{selector}'"
