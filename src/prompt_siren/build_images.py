@@ -207,29 +207,12 @@ class ImageBuilder:
         if not await self._should_build(tag):
             return
 
-        logger.info(f"Building image {tag} from {context_path}")
-        errors = []
-
-        async for log_line in self._docker.build_image(
+        await self._do_build(
             context_path=context_path,
             tag=tag,
             dockerfile_path=dockerfile_path,
-            buildargs=build_args,
-        ):
-            if "stream" in log_line:
-                stream = log_line["stream"].strip()
-                if stream:
-                    logger.debug(stream)
-            if "error" in log_line:
-                error = log_line["error"]
-                logger.error(f"Build error: {error}")
-                errors.append(error)
-
-        if errors:
-            raise RuntimeError(f"Failed to build image {tag}: {errors}")
-
-        self._built_images.add(tag)
-        logger.info(f"Successfully built image {tag}")
+            build_args=build_args,
+        )
 
     async def build_modified_image(
         self,
@@ -296,13 +279,66 @@ class ImageBuilder:
                     dockerfile_path=stage.dockerfile_path,
                     build_args=build_args or None,
                 )
-        else:
-            await self.build_from_context(
-                context_path=spec.context_path,
-                tag=spec.tag,
-                dockerfile_path=spec.dockerfile_path,
-                build_args=spec.build_args,
-            )
+            return
+
+        # BuildImageSpec handling
+        if not await self._should_build(spec.tag):
+            return
+
+        # Run seeder before building if defined
+        if spec.seeder is not None:
+            logger.info(f"Running pre-build seeder for {spec.tag}")
+            await spec.seeder()
+            logger.info(f"Pre-build seeder completed for {spec.tag}")
+
+        await self._do_build(
+            context_path=spec.context_path,
+            tag=spec.tag,
+            dockerfile_path=spec.dockerfile_path,
+            build_args=spec.build_args,
+        )
+
+    async def _do_build(
+        self,
+        context_path: str,
+        tag: str,
+        dockerfile_path: str | None = None,
+        build_args: dict[str, str] | None = None,
+    ) -> None:
+        """Execute the actual Docker build (assumes _should_build check already done).
+
+        Args:
+            context_path: Path to the build context directory
+            tag: Tag for the built image
+            dockerfile_path: Path to Dockerfile relative to context
+            build_args: Build arguments
+
+        Raises:
+            RuntimeError: If build fails
+        """
+        logger.info(f"Building image {tag} from {context_path}")
+        errors = []
+
+        async for log_line in self._docker.build_image(
+            context_path=context_path,
+            tag=tag,
+            dockerfile_path=dockerfile_path,
+            buildargs=build_args,
+        ):
+            if "stream" in log_line:
+                stream = log_line["stream"].strip()
+                if stream:
+                    logger.debug(stream)
+            if "error" in log_line:
+                error = log_line["error"]
+                logger.error(f"Build error: {error}")
+                errors.append(error)
+
+        if errors:
+            raise RuntimeError(f"Failed to build image {tag}: {errors}")
+
+        self._built_images.add(tag)
+        logger.info(f"Successfully built image {tag}")
 
     async def build_all_specs(self, specs: list[ImageBuildSpec]) -> list[BuildError]:
         """Build all image specs with proper dependency ordering.

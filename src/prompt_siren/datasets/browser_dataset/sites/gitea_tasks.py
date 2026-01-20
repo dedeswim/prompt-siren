@@ -1,5 +1,5 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-"""Gitea site implementation with benign tasks."""
+"""Benign task definitions for Gitea site."""
 
 from ....environments.browser_env import BrowserEnvState, BrowserTaskMetadata
 from ....tasks import BenignTask

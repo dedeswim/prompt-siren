@@ -1,6 +1,8 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 """Configuration for browser-based dataset."""
 
+from __future__ import annotations
+
 import logging
 from importlib.resources import files
 from pathlib import Path
@@ -10,7 +12,7 @@ from pydantic import BaseModel, Discriminator, Field, Tag
 from typing_extensions import assert_never
 
 from ...environments.browser_env import SiteName
-from ...sandbox_managers.image_spec import BuildImageSpec, ImageSpec, PullImageSpec
+from ...sandbox_managers.image_spec import BuildImageSpec, ImageSpec, PullImageSpec, SeederFn
 from ...sandbox_managers.sandbox_task_setup import ContainerSpec
 
 logger = logging.getLogger(__name__)
@@ -23,43 +25,83 @@ DEFAULT_BROWSER_IMAGE = "chromedp/headless-shell:latest"
 CDP_PORT = 9222
 
 
-def _get_docker_subdir(subdir: str) -> Path | None:
-    """Get the path to a subdirectory within the docker build contexts.
+def _get_site_seeder(site_name: str) -> SeederFn | None:
+    """Get the seeder function for a site.
+
+    Args:
+        site_name: Site name (e.g., "gitea", "answer", "wikijs")
+
+    Returns:
+        Seeder function if available, None for unknown sites.
+
+    Raises:
+        RuntimeError: If seeder import fails for a known site. This is fatal
+            because the image would be built without the expected seeded data,
+            causing cryptic failures at runtime.
+    """
+    # Map site names to their module paths for lazy importing
+    site_modules = {
+        "gitea": "prompt_siren.datasets.browser_dataset.sites.gitea",
+        "answer": "prompt_siren.datasets.browser_dataset.sites.answer",
+        "wikijs": "prompt_siren.datasets.browser_dataset.sites.wikijs",
+    }
+
+    module_path = site_modules.get(site_name)
+    if module_path is None:
+        return None
+
+    try:
+        import importlib
+
+        module = importlib.import_module(module_path)
+        return module.generate_seed
+    except (ImportError, AttributeError) as e:
+        # This is a known site that MUST have a seeder - fail fast rather than
+        # silently building an image without seeded data.
+        raise RuntimeError(
+            f"Failed to import seeder for known site {site_name}: {e}. "
+            f"Ensure the seeding module and all its dependencies are installed. "
+            f"Required module: {module_path}"
+        ) from e
+
+
+def _get_site_build_context(site_name: str) -> Path | None:
+    """Get the path to a site's build context directory.
 
     Uses importlib.resources to locate package resources. For Docker builds,
     we need a real filesystem path, so this only works when the package is
     installed as a directory (not in a zip file).
 
     Args:
-        subdir: Subdirectory name (e.g., "gitea", "answer")
+        site_name: Site name (e.g., "gitea", "answer", "wikijs")
 
     Returns:
-        Path to the subdirectory if it exists and contains a Dockerfile, None otherwise.
+        Path to the site's build context if it exists and contains a Dockerfile, None otherwise.
     """
     try:
-        # Get the Traversable for the docker subdirectory
-        docker_traversable = (
-            files("prompt_siren.datasets.browser_dataset").joinpath("docker").joinpath(subdir)
+        # Get the Traversable for the site subdirectory
+        site_traversable = (
+            files("prompt_siren.datasets.browser_dataset").joinpath("sites").joinpath(site_name)
         )
 
         # Convert to a real path - works for directory-based installations
         # For zip-based installations, this will be a path inside the zip
         # which won't work for Docker builds (but that's an edge case)
-        real_path = Path(str(docker_traversable))
+        real_path = Path(str(site_traversable))
 
         if real_path.is_dir() and (real_path / "Dockerfile").exists():
             return real_path
         logger.debug(
             "No valid Docker build context found for %s at %s (directory or Dockerfile missing)",
-            subdir,
+            site_name,
             real_path,
         )
     except (TypeError, FileNotFoundError) as e:
         # Expected when package is zip-installed or context doesn't exist
-        logger.debug("Could not locate Docker build context for %s: %s", subdir, e)
+        logger.debug("Could not locate Docker build context for %s: %s", site_name, e)
     except OSError as e:
         # Unexpected filesystem error
-        logger.warning("Filesystem error accessing Docker build context for %s: %s", subdir, e)
+        logger.warning("Filesystem error accessing Docker build context for %s: %s", site_name, e)
     return None
 
 
@@ -103,9 +145,13 @@ class BaseSiteConfig(BaseModel):
         If build_context is explicitly set, uses that (and fails if path doesn't exist).
         Otherwise, auto-detects a pre-seeded build context based on site_name if provided.
 
+        When a build context is found, this method also attaches the appropriate seeder
+        function which will be called before building the image to generate the pre-seeded
+        database.
+
         Args:
             site_name: Optional site name for auto-detecting build context
-                       (e.g., "gitea", "answer")
+                       (e.g., "gitea", "answer", "wikijs")
 
         Returns:
             BuildImageSpec if a valid build context is found, otherwise PullImageSpec.
@@ -119,16 +165,21 @@ class BaseSiteConfig(BaseModel):
 
         # Auto-detect build context based on site name if not explicitly set
         if build_path is None and site_name is not None:
-            build_path = _get_docker_subdir(site_name)
+            build_path = _get_site_build_context(site_name)
 
         if build_path is not None:
             if build_path.exists():
                 # Use pre-seeded image built from context
                 # Tag based on hostname to make it unique
                 safe_hostname = self.hostname.replace(".", "-")
+
+                # Get the seeder function for this site
+                seeder = _get_site_seeder(site_name) if site_name else None
+
                 return BuildImageSpec(
                     context_path=str(build_path),
                     tag=f"prompt-siren/{safe_hostname}:latest",
+                    seeder=seeder,
                 )
             # Explicitly configured paths must exist - fail fast
             if explicitly_configured:
@@ -294,7 +345,7 @@ class BrowserDatasetConfig(BaseModel):
     def get_all_site_container_specs(self) -> dict[str, ContainerSpec]:
         """Get container specs for all sites.
 
-        Auto-detects pre-seeded build contexts from docker/{site_name}/ directories.
+        Auto-detects pre-seeded build contexts from sites/{site_name}/ directories.
         Falls back to pulling base images if no pre-seeded context is found.
 
         Returns:

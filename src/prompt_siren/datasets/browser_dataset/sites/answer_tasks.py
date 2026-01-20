@@ -1,5 +1,5 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-"""Apache Answer site implementation with benign tasks."""
+"""Benign task definitions for Apache Answer site."""
 
 from ....environments.browser_env import BrowserEnvState, BrowserTaskMetadata
 from ....tasks import BenignTask
