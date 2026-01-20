@@ -187,11 +187,17 @@ class BaseSiteConfig(BaseModel):
                     f"Build context path {build_path} does not exist for {self.hostname}. "
                     f"Either fix the path or remove build_context to use base image {self.container_image}."
                 )
-            # Auto-detected paths can fall back gracefully
-            logger.warning(
-                "Auto-detected build context path %s does not exist for %s, "
-                "falling back to base image %s",
-                build_path,
+            # Known sites with seeders MUST have build context - this indicates installation issue
+            known_seeded_sites = {"gitea", "answer", "wikijs"}
+            if site_name in known_seeded_sites:
+                raise RuntimeError(
+                    f"Auto-detected build context path {build_path} does not exist for "
+                    f"known site '{site_name}'. Pre-seeded data is required for this site. "
+                    f"Ensure the package is properly installed with data directories."
+                )
+            # Unknown/custom sites can fall back gracefully
+            logger.info(
+                "No build context found for custom site %s, using base image %s",
                 self.hostname,
                 self.container_image,
             )

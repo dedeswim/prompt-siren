@@ -69,16 +69,23 @@ def get_vectors_for_sites(sites: Sequence[str]) -> list[InjectionVectorID]:
 
     Returns:
         Combined list of injection vector IDs for all specified sites
+
+    Raises:
+        ValueError: If any site name is not recognized.
     """
     vectors: list[InjectionVectorID] = []
+    unknown_sites: list[str] = []
+
     for site in sites:
         if site in VECTORS_BY_SITE:
             vectors.extend(VECTORS_BY_SITE[site])
         else:
-            logger.warning(
-                "Unknown site '%s' requested for injection vectors. "
-                "Valid sites: %s. No vectors will be loaded for this site.",
-                site,
-                list(VECTORS_BY_SITE.keys()),
-            )
+            unknown_sites.append(site)
+
+    if unknown_sites:
+        raise ValueError(
+            f"Unknown site(s) requested for injection vectors: {unknown_sites}. "
+            f"Valid sites: {sorted(VECTORS_BY_SITE.keys())}."
+        )
+
     return vectors
