@@ -23,7 +23,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, Generic, get_args, Literal, TypedDict, TypeVar
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing_extensions import Self
 
 try:
@@ -245,8 +245,8 @@ class BrowserTaskMetadata(BaseModel):
     and the starting URL for the task.
     """
 
-    sites: list[SiteName]
-    """Sites this task interacts with."""
+    sites: list[SiteName] = Field(min_length=1)
+    """Sites this task interacts with (at least one required)."""
     start_url: str
     """Starting URL for this task."""
 
@@ -311,6 +311,35 @@ class BrowserEnvironment(
 
         self._task_setups = []
 
+    def _get_cdp_endpoint(self, sandbox_state: SandboxState) -> str:
+        """Get the CDP endpoint URL from sandbox state.
+
+        Uses the dynamically allocated host port from sandbox_state.agent_port_bindings.
+
+        Args:
+            sandbox_state: Sandbox state with port bindings from container creation
+
+        Returns:
+            CDP endpoint URL (e.g., "http://localhost:32768")
+
+        Raises:
+            RuntimeError: If no CDP port binding is found
+        """
+        # Get the container port (e.g., 9222) from the spec
+        if not self._browser_container_spec.ports:
+            raise RuntimeError("Browser container spec must have ports defined")
+        container_port = next(iter(self._browser_container_spec.ports.values()))
+
+        # Look up the actual host port from the sandbox state
+        if container_port not in sandbox_state.agent_port_bindings:
+            raise RuntimeError(
+                f"CDP port {container_port} not found in agent_port_bindings. "
+                f"Available bindings: {sandbox_state.agent_port_bindings}"
+            )
+
+        host_port = sandbox_state.agent_port_bindings[container_port]
+        return f"http://localhost:{host_port}"
+
     async def reset_env_state(self, env_state: BrowserEnvState) -> BrowserEnvState:
         """Reset env_state by recreating containers from scratch.
 
@@ -335,11 +364,8 @@ class BrowserEnvironment(
         # Create fresh containers from original images
         new_sandbox_state = await env_state.sandbox_manager.create_sandbox(env_state.task_setup)
 
-        # Connect to browser via CDP
-        if not self._browser_container_spec.ports:
-            raise RuntimeError("Browser container spec must have ports defined")
-        cdp_port = next(iter(self._browser_container_spec.ports.keys()))
-        cdp_endpoint = f"http://localhost:{cdp_port}"
+        # Connect to browser via CDP using dynamically allocated port
+        cdp_endpoint = self._get_cdp_endpoint(new_sandbox_state)
 
         # Reconnect browser using existing Playwright instance
         new_browser = await env_state.playwright.chromium.connect_over_cdp(cdp_endpoint)
@@ -543,12 +569,8 @@ class BrowserEnvironment(
         task_setup = self._create_task_setup(task)
 
         async with self._sandbox_manager.setup_task(task_setup) as sandbox_state:
-            # Connect to browser via CDP
-            if not self._browser_container_spec.ports:
-                raise RuntimeError("Browser container spec must have ports defined")
-            # ports is dict[int, int] (host_port -> container_port), get first host port
-            cdp_port = next(iter(self._browser_container_spec.ports.keys()))
-            cdp_endpoint = f"http://localhost:{cdp_port}"
+            # Connect to browser via CDP using dynamically allocated port
+            cdp_endpoint = self._get_cdp_endpoint(sandbox_state)
 
             # Get starting URL from task metadata
             start_url = self._get_start_url(task)

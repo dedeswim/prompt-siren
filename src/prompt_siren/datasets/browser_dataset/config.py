@@ -250,11 +250,18 @@ class BrowserContainerConfig(BaseModel):
         Note: chromedp/headless-shell has a built-in ENTRYPOINT that runs
         headless Chrome with CDP on port 9222. We don't set command so the
         image's default entrypoint is used.
+
+        Port Allocation:
+            Uses dynamic port allocation (host_port=0) to let Docker assign
+            an available port. This prevents port conflicts when running
+            multiple browser environments in parallel or during reset operations.
+            The actual allocated port is stored in SandboxState.agent_port_bindings.
         """
         return ContainerSpec(
             image_spec=PullImageSpec(tag=self.image),
             hostname="browser",
-            ports={self.cdp_port: self.cdp_port},
+            # Use dynamic port allocation: 0 means Docker assigns an available port
+            ports={0: self.cdp_port},
         )
 
 

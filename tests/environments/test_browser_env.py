@@ -20,6 +20,21 @@ from prompt_siren.types import StrContentAttack
 
 pytestmark = pytest.mark.anyio
 
+# Default CDP port used in tests (simulating dynamically allocated port)
+DEFAULT_TEST_CDP_HOST_PORT = 32768
+
+
+def create_mock_sandbox_state(agent_port_bindings: dict[int, int] | None = None) -> MagicMock:
+    """Create a mock sandbox state with proper port bindings.
+
+    Args:
+        agent_port_bindings: Port bindings to use. Defaults to {9222: DEFAULT_TEST_CDP_HOST_PORT}
+                            which simulates dynamic allocation of the CDP port.
+    """
+    mock_state = MagicMock()
+    mock_state.agent_port_bindings = agent_port_bindings or {9222: DEFAULT_TEST_CDP_HOST_PORT}
+    return mock_state
+
 
 @pytest.fixture
 def mock_sandbox_manager() -> MagicMock:
@@ -33,11 +48,15 @@ def mock_sandbox_manager() -> MagicMock:
 
 @pytest.fixture
 def browser_container_spec() -> ContainerSpec:
-    """Create browser container spec."""
+    """Create browser container spec.
+
+    Uses dynamic port allocation (host_port=0) to match production config.
+    The container port is 9222 (CDP port).
+    """
     return ContainerSpec(
         image_spec=PullImageSpec(tag="chromedp/headless-shell:latest"),
         hostname="browser",
-        ports={9222: 9222},
+        ports={0: 9222},  # Dynamic allocation: 0 means Docker assigns a port
     )
 
 
@@ -585,7 +604,7 @@ class TestResetEnvState:
 
         mock_sandbox_manager = MagicMock()
         mock_sandbox_manager.destroy_sandbox = AsyncMock()
-        mock_sandbox_manager.create_sandbox = AsyncMock(return_value=MagicMock())
+        mock_sandbox_manager.create_sandbox = AsyncMock(return_value=create_mock_sandbox_state())
 
         mock_task_setup = MagicMock()
 
@@ -593,7 +612,7 @@ class TestResetEnvState:
             page=MagicMock(),
             browser=mock_old_browser,
             playwright=mock_playwright,
-            sandbox_state=MagicMock(),
+            sandbox_state=create_mock_sandbox_state(),
             sandbox_manager=mock_sandbox_manager,
             task_setup=mock_task_setup,
             start_url="http://example.com",
@@ -609,8 +628,8 @@ class TestResetEnvState:
 
         from prompt_siren.environments.browser_env import BrowserEnvState
 
-        mock_old_sandbox_state = MagicMock()
-        mock_new_sandbox_state = MagicMock()
+        mock_old_sandbox_state = create_mock_sandbox_state()
+        mock_new_sandbox_state = create_mock_sandbox_state()
 
         mock_new_browser = MagicMock()
         mock_new_page = MagicMock()
@@ -648,7 +667,7 @@ class TestResetEnvState:
         """Test that reset creates fresh containers."""
         from prompt_siren.environments.browser_env import BrowserEnvState
 
-        mock_new_sandbox_state = MagicMock()
+        mock_new_sandbox_state = create_mock_sandbox_state()
         mock_task_setup = MagicMock()
 
         mock_new_browser = MagicMock()
@@ -671,7 +690,7 @@ class TestResetEnvState:
             page=MagicMock(),
             browser=mock_browser,
             playwright=mock_playwright,
-            sandbox_state=MagicMock(),
+            sandbox_state=create_mock_sandbox_state(),
             sandbox_manager=mock_sandbox_manager,
             task_setup=mock_task_setup,
             start_url="http://example.com",
@@ -683,7 +702,7 @@ class TestResetEnvState:
         assert new_state.sandbox_state is mock_new_sandbox_state
 
     async def test_reconnects_browser_via_cdp(self, browser_env: BrowserEnvironment):
-        """Test that reset reconnects to browser via CDP."""
+        """Test that reset reconnects to browser via CDP using dynamic port."""
         from prompt_siren.environments.browser_env import BrowserEnvState
 
         mock_new_browser = MagicMock()
@@ -697,7 +716,7 @@ class TestResetEnvState:
 
         mock_sandbox_manager = MagicMock()
         mock_sandbox_manager.destroy_sandbox = AsyncMock()
-        mock_sandbox_manager.create_sandbox = AsyncMock(return_value=MagicMock())
+        mock_sandbox_manager.create_sandbox = AsyncMock(return_value=create_mock_sandbox_state())
 
         mock_browser = MagicMock()
         mock_browser.close = AsyncMock()
@@ -706,7 +725,7 @@ class TestResetEnvState:
             page=MagicMock(),
             browser=mock_browser,
             playwright=mock_playwright,
-            sandbox_state=MagicMock(),
+            sandbox_state=create_mock_sandbox_state(),
             sandbox_manager=mock_sandbox_manager,
             task_setup=MagicMock(),
             start_url="http://example.com",
@@ -714,8 +733,10 @@ class TestResetEnvState:
 
         new_state = await browser_env.reset_env_state(env_state)
 
-        # Should connect via CDP on port 9222 (from browser_container_spec fixture)
-        mock_playwright.chromium.connect_over_cdp.assert_called_once_with("http://localhost:9222")
+        # Should connect via CDP using dynamically allocated port from sandbox state
+        mock_playwright.chromium.connect_over_cdp.assert_called_once_with(
+            f"http://localhost:{DEFAULT_TEST_CDP_HOST_PORT}"
+        )
         assert new_state.browser is mock_new_browser
 
     async def test_navigates_to_start_url(self, browser_env: BrowserEnvironment):
@@ -733,7 +754,7 @@ class TestResetEnvState:
 
         mock_sandbox_manager = MagicMock()
         mock_sandbox_manager.destroy_sandbox = AsyncMock()
-        mock_sandbox_manager.create_sandbox = AsyncMock(return_value=MagicMock())
+        mock_sandbox_manager.create_sandbox = AsyncMock(return_value=create_mock_sandbox_state())
 
         mock_browser = MagicMock()
         mock_browser.close = AsyncMock()
@@ -742,7 +763,7 @@ class TestResetEnvState:
             page=MagicMock(),
             browser=mock_browser,
             playwright=mock_playwright,
-            sandbox_state=MagicMock(),
+            sandbox_state=create_mock_sandbox_state(),
             sandbox_manager=mock_sandbox_manager,
             task_setup=MagicMock(),
             start_url="http://gitea.dev-forge.io/issues",
@@ -768,7 +789,7 @@ class TestResetEnvState:
 
         mock_sandbox_manager = MagicMock()
         mock_sandbox_manager.destroy_sandbox = AsyncMock()
-        mock_sandbox_manager.create_sandbox = AsyncMock(return_value=MagicMock())
+        mock_sandbox_manager.create_sandbox = AsyncMock(return_value=create_mock_sandbox_state())
 
         mock_browser = MagicMock()
         mock_browser.close = AsyncMock()
@@ -777,7 +798,7 @@ class TestResetEnvState:
             page=MagicMock(),
             browser=mock_browser,
             playwright=mock_playwright,
-            sandbox_state=MagicMock(),
+            sandbox_state=create_mock_sandbox_state(),
             sandbox_manager=mock_sandbox_manager,
             task_setup=MagicMock(),
             start_url="http://example.com",
@@ -808,7 +829,7 @@ class TestResetEnvState:
         )
 
         mock_sandbox_manager.destroy_sandbox = AsyncMock()
-        mock_sandbox_manager.create_sandbox = AsyncMock(return_value=MagicMock())
+        mock_sandbox_manager.create_sandbox = AsyncMock(return_value=create_mock_sandbox_state())
 
         mock_browser = MagicMock()
         mock_browser.close = AsyncMock()
@@ -817,7 +838,7 @@ class TestResetEnvState:
             page=MagicMock(),
             browser=mock_browser,
             playwright=MagicMock(),
-            sandbox_state=MagicMock(),
+            sandbox_state=create_mock_sandbox_state(),
             sandbox_manager=mock_sandbox_manager,
             task_setup=MagicMock(),
             start_url="http://example.com",

@@ -29,7 +29,8 @@ class TestBrowserContainerConfig:
         assert spec.hostname == "browser"
         assert spec.ports is not None
         # ports is dict[int, int] mapping host_port -> container_port
-        assert spec.ports == {9222: 9222}
+        # Uses dynamic allocation (0 as host port) so Docker assigns an available port
+        assert spec.ports == {0: 9222}
         # No command means "use image's ENTRYPOINT"
         assert spec.command is None
 
@@ -40,7 +41,8 @@ class TestBrowserContainerConfig:
 
         assert spec.ports is not None
         # ports is dict[int, int] mapping host_port -> container_port
-        assert spec.ports == {9999: 9999}
+        # Uses dynamic allocation (0 as host port) for the custom container port
+        assert spec.ports == {0: 9999}
 
 
 class TestSiteConfigGetUrl:

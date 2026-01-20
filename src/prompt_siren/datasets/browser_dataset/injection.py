@@ -5,9 +5,12 @@ This module provides injection vector IDs and utilities for injecting attack
 content into web pages.
 """
 
+import logging
 from collections.abc import Sequence
 
 from ...types import InjectionVectorID
+
+logger = logging.getLogger(__name__)
 
 # Pre-defined injection vector IDs for Gitea (Git Forge)
 GITEA_VECTORS: list[InjectionVectorID] = [
@@ -71,4 +74,11 @@ def get_vectors_for_sites(sites: Sequence[str]) -> list[InjectionVectorID]:
     for site in sites:
         if site in VECTORS_BY_SITE:
             vectors.extend(VECTORS_BY_SITE[site])
+        else:
+            logger.warning(
+                "Unknown site '%s' requested for injection vectors. "
+                "Valid sites: %s. No vectors will be loaded for this site.",
+                site,
+                list(VECTORS_BY_SITE.keys()),
+            )
     return vectors
