@@ -62,14 +62,16 @@ def browser_container_spec() -> ContainerSpec:
 
 @pytest.fixture
 def site_container_specs() -> dict[str, ContainerSpec]:
-    """Create site container specs.
-
-    NOTE: PR1 includes only Gitea. PR2 will add Answer, WikiJS, etc.
-    """
+    """Create site container specs."""
     return {
         "gitea": ContainerSpec(
             image_spec=PullImageSpec(tag="gitea/gitea:latest"),
             hostname="gitea.dev-forge.io",
+            ports={80: 80},
+        ),
+        "answer": ContainerSpec(
+            image_spec=PullImageSpec(tag="apache/answer:latest"),
+            hostname="answers.dev-community.io",
             ports={80: 80},
         ),
     }
@@ -86,11 +88,8 @@ def browser_env(
     browser_container_spec: ContainerSpec,
     site_container_specs: dict[str, ContainerSpec],
 ) -> BrowserEnvironment:
-    """Create a BrowserEnvironment instance for testing.
-
-    NOTE: PR1 includes only Gitea vectors. PR2 will add Answer, WikiJS, etc.
-    """
-    injection_ids = ["gitea_issue_content", "gitea_readme"]
+    """Create a BrowserEnvironment instance for testing."""
+    injection_ids = ["gitea_issue_content", "gitea_readme", "answer_question_body"]
     return BrowserEnvironment(
         name="test-browser",
         all_injection_ids=injection_ids,
@@ -171,10 +170,74 @@ class TestGetSitesFromTask:
 
         assert result == ["gitea"]
 
-    # NOTE: Cross-site tests removed for PR1 (only Gitea). PR2 will add them back.
+    def test_multiple_sites_from_cross_site_task(self, browser_env: BrowserEnvironment):
+        """Test extracting multiple sites from BrowserTaskMetadata."""
+        task = BenignTask(
+            id="cross_site_task",
+            prompt="Do something across sites",
+            evaluators={},
+            metadata=BrowserTaskMetadata(
+                sites=["gitea", "answer"], start_url=HttpUrl("http://gitea.dev-forge.io")
+            ),
+        )
 
-    def test_combines_sites_from_task_couple_same_site(self, browser_env: BrowserEnvironment):
-        """Test that TaskCouple deduplicates same site from both tasks."""
+        result = browser_env._get_sites_from_task(task)
+
+        # Order is preserved from metadata
+        assert result == ["gitea", "answer"]
+
+    def test_combines_sites_from_task_couple(self, browser_env: BrowserEnvironment):
+        """Test that TaskCouple combines sites from both benign and malicious tasks."""
+        benign = BenignTask(
+            id="benign_task",
+            prompt="Do something",
+            evaluators={},
+            metadata=BrowserTaskMetadata(
+                sites=["gitea"], start_url=HttpUrl("http://gitea.dev-forge.io")
+            ),
+        )
+        malicious = MaliciousTask(
+            id="malicious_task",
+            goal="Attack",
+            evaluators={},
+            metadata=BrowserTaskMetadata(
+                sites=["answer"], start_url=HttpUrl("http://answers.dev-community.io")
+            ),
+        )
+        couple = TaskCouple(benign=benign, malicious=malicious)
+
+        result = browser_env._get_sites_from_task(couple)
+
+        # Benign sites come first, then malicious (order preserved)
+        assert result == ["gitea", "answer"]
+
+    def test_combines_cross_site_with_single_site(self, browser_env: BrowserEnvironment):
+        """Test combining BrowserTaskMetadata with single-site task in couple."""
+        benign = BenignTask(
+            id="benign_task",
+            prompt="Do something",
+            evaluators={},
+            metadata=BrowserTaskMetadata(
+                sites=["gitea"], start_url=HttpUrl("http://gitea.dev-forge.io")
+            ),
+        )
+        malicious = MaliciousTask(
+            id="malicious_task",
+            goal="Attack across sites",
+            evaluators={},
+            metadata=BrowserTaskMetadata(
+                sites=["answer", "wikijs"], start_url=HttpUrl("http://answers.dev-community.io")
+            ),
+        )
+        couple = TaskCouple(benign=benign, malicious=malicious)
+
+        result = browser_env._get_sites_from_task(couple)
+
+        # Benign first, then malicious (order preserved, no duplicates)
+        assert result == ["gitea", "answer", "wikijs"]
+
+    def test_deduplicates_same_site(self, browser_env: BrowserEnvironment):
+        """Test that same site in both tasks is deduplicated."""
         benign = BenignTask(
             id="benign_task",
             prompt="Do something",
@@ -198,8 +261,6 @@ class TestGetSitesFromTask:
         # Should deduplicate
         assert result == ["gitea"]
 
-    # NOTE: Test deduplicates_same_site moved above as test_combines_sites_from_task_couple_same_site
-
     def test_include_malicious_false_returns_only_benign_sites(
         self, browser_env: BrowserEnvironment
     ):
@@ -217,7 +278,7 @@ class TestGetSitesFromTask:
             goal="Attack",
             evaluators={},
             metadata=BrowserTaskMetadata(
-                sites=["gitea"], start_url=HttpUrl("http://gitea.dev-forge.io")
+                sites=["answer"], start_url=HttpUrl("http://answers.dev-community.io")
             ),
         )
         couple = TaskCouple(benign=benign, malicious=malicious)
@@ -230,18 +291,18 @@ class TestGetSitesFromTask:
     def test_extracts_first_site_for_url_resolution(self, browser_env: BrowserEnvironment):
         """Test that first site can be used for URL resolution."""
         task = BenignTask(
-            id="gitea_task",
-            prompt="Do something on gitea",
+            id="cross_site_task",
+            prompt="Do something across sites",
             evaluators={},
             metadata=BrowserTaskMetadata(
-                sites=["gitea"], start_url=HttpUrl("http://gitea.dev-forge.io")
+                sites=["answer", "gitea"], start_url=HttpUrl("http://answers.dev-community.io")
             ),
         )
 
         result = browser_env._get_sites_from_task(task)
 
         # First element is primary site for URL resolution
-        assert result[0] == "gitea"
+        assert result[0] == "answer"
 
 
 class TestCreateTaskSetup:
@@ -267,7 +328,23 @@ class TestCreateTaskSetup:
         assert setup.network_config.name == "browser-net-gitea_find_issue"
         assert setup.network_config.internal is False
 
-    # NOTE: Cross-site task test removed for PR1 (only Gitea). PR2 will add it back.
+    def test_creates_setup_for_cross_site_task(self, browser_env: BrowserEnvironment):
+        """Test creating TaskSetup for a cross-site task."""
+        task = BenignTask(
+            id="cross_site_task",
+            prompt="Do something across sites",
+            evaluators={},
+            metadata=BrowserTaskMetadata(
+                sites=["gitea", "answer"], start_url=HttpUrl("http://gitea.dev-forge.io")
+            ),
+        )
+
+        setup = browser_env._create_task_setup(task)
+
+        assert setup.task_id == "cross_site_task"
+        assert "gitea" in setup.service_containers
+        assert "answer" in setup.service_containers
+        assert len(setup.service_containers) == 2
 
     def test_creates_setup_for_task_couple(self, browser_env: BrowserEnvironment):
         """Test creating TaskSetup for a TaskCouple."""
@@ -284,7 +361,7 @@ class TestCreateTaskSetup:
             goal="Attack",
             evaluators={},
             metadata=BrowserTaskMetadata(
-                sites=["gitea"], start_url=HttpUrl("http://gitea.dev-forge.io")
+                sites=["answer"], start_url=HttpUrl("http://answers.dev-community.io")
             ),
         )
         couple = TaskCouple(benign=benign, malicious=malicious)
@@ -293,9 +370,9 @@ class TestCreateTaskSetup:
 
         # Couple ID format is "benign_id:malicious_id"
         assert setup.task_id == "benign_task:malicious_task"
-        # Should include gitea container (deduplicated since both tasks use same site)
+        # Should include containers for both sites
         assert "gitea" in setup.service_containers
-        assert len(setup.service_containers) == 1
+        assert "answer" in setup.service_containers
 
     def test_sanitizes_task_id_for_network_name(self, browser_env: BrowserEnvironment):
         """Test that task IDs with special characters are sanitized for network names."""
@@ -325,37 +402,20 @@ class TestCreateTaskSetup:
         assert "/" not in setup.network_config.name
         assert setup.network_config.name == "browser-net-benign-task-malicious-task"
 
-    def test_raises_for_unknown_site_containers(
-        self,
-        mock_sandbox_manager: MagicMock,
-        browser_container_spec: ContainerSpec,
-    ):
-        """Test that unknown sites raise ValueError.
-
-        NOTE: This test creates its own BrowserEnvironment with an empty site_container_specs
-        to test the error handling for unknown sites.
-        """
-        env_with_no_sites = BrowserEnvironment(
-            name="test-browser-no-sites",
-            all_injection_ids=[],
-            sandbox_manager=mock_sandbox_manager,
-            browser_container_spec=browser_container_spec,
-            site_container_specs={},  # No site containers configured
-            render_fn=_mock_render_fn,
-        )
-
-        # gitea is a valid SiteName, but we have no container spec for it
+    def test_raises_for_unknown_site_containers(self, browser_env: BrowserEnvironment):
+        """Test that unknown sites raise ValueError."""
+        # wikijs is not in our site_container_specs fixture
         task = BenignTask(
-            id="gitea_task",
-            prompt="Do something on gitea",
+            id="wiki_task",
+            prompt="Do something on wiki",
             evaluators={},
             metadata=BrowserTaskMetadata(
-                sites=["gitea"], start_url=HttpUrl("http://gitea.dev-forge.io")
+                sites=["gitea", "wikijs"], start_url=HttpUrl("http://gitea.dev-forge.io")
             ),
         )
 
-        with pytest.raises(ValueError, match="requires site 'gitea' but no container spec"):
-            env_with_no_sites._create_task_setup(task)
+        with pytest.raises(ValueError, match="requires site 'wikijs' but no container spec"):
+            browser_env._create_task_setup(task)
 
 
 class TestApplyInjections:

@@ -93,29 +93,23 @@ class TestBrowserDataset:
         mock_manager = MagicMock()
         return create_browser_dataset(config, sandbox_manager=mock_manager)
 
-    def test_has_example_benign_tasks(self, dataset: BrowserDataset):
-        """Test that example benign tasks are present.
-
-        PR1 includes only Gitea site with one example task.
-        PR2 will add Answer, WikiJS, and all remaining tasks.
-        """
+    def test_has_benign_tasks(self, dataset: BrowserDataset):
+        """Test that benign tasks are present for each site."""
         benign_ids = {t.id for t in dataset.benign_tasks}
 
-        # PR1 includes only Gitea with one example task
-        assert "gitea_find_issue" in benign_ids, "Gitea example task should be present"
-        assert len(benign_ids) == 1, "PR1 should have exactly one benign task"
+        # Should have tasks from Gitea and Answer sites
+        gitea_tasks = [t for t in benign_ids if t.startswith("gitea_")]
+        answer_tasks = [t for t in benign_ids if t.startswith("answer_")]
 
-    def test_task_couples_empty_in_pr1(self, dataset: BrowserDataset):
-        """Test that task couples are empty in PR1.
+        assert len(gitea_tasks) > 0, "Should have Gitea benign tasks"
+        assert len(answer_tasks) > 0, "Should have Answer benign tasks"
 
-        PR1 ships infrastructure only. PR2 will add malicious tasks and couples.
-        When couples are added in PR2, this test should be updated to validate
-        site compatibility.
-        """
-        couples = dataset.task_couples
+    def test_has_malicious_tasks(self, dataset: BrowserDataset):
+        """Test that malicious tasks are present."""
+        malicious_ids = {t.id for t in dataset.malicious_tasks}
 
-        # PR1: No couples yet
-        assert len(couples) == 0, "PR1 should have no task couples"
+        # Should have malicious tasks
+        assert len(malicious_ids) > 0, "Should have malicious tasks"
 
     def test_task_ids_unique(self, dataset: BrowserDataset):
         """Test that task IDs are unique (catches accidental duplicates)."""

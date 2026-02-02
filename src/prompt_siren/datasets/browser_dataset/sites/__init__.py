@@ -1,11 +1,10 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-"""Site implementations for browser-based dataset.
+"""Site implementations for browser-based dataset."""
 
-NOTE: PR1 includes only Gitea. PR2 will add Answer and WikiJS.
-"""
-
+from .answer_tasks import ANSWER_BENIGN_TASKS
 from .gitea_tasks import GITEA_BENIGN_TASKS
 
 __all__ = [
+    "ANSWER_BENIGN_TASKS",
     "GITEA_BENIGN_TASKS",
 ]

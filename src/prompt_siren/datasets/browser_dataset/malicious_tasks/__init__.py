@@ -1,14 +1,15 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-"""Malicious tasks for browser-based dataset.
+"""Malicious tasks for browser-based dataset."""
 
-NOTE: PR1 includes only Gitea. PR2 will add Answer and cross-site malicious tasks.
-"""
-
+from .answer_tasks import ANSWER_MALICIOUS_TASKS
+from .cross_site_tasks import CROSS_SITE_MALICIOUS_TASKS
 from .gitea_tasks import GITEA_MALICIOUS_TASKS
 
-MALICIOUS_TASKS = GITEA_MALICIOUS_TASKS
+MALICIOUS_TASKS = GITEA_MALICIOUS_TASKS + ANSWER_MALICIOUS_TASKS + CROSS_SITE_MALICIOUS_TASKS
 
 __all__ = [
+    "ANSWER_MALICIOUS_TASKS",
+    "CROSS_SITE_MALICIOUS_TASKS",
     "GITEA_MALICIOUS_TASKS",
     "MALICIOUS_TASKS",
 ]
